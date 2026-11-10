@@ -45,7 +45,8 @@ export default function Reader() {
 
   const addStroke = (stroke: Stroke) => {
     if (stroke.tool === 'eraser') {
-      setAnnotations((state) => ({ ...state, strokes: state.strokes.filter((item) => item.page !== page || item.id !== currentStrokes.at(-1)?.id) }));
+      const hit = (point: { x: number; y: number }) => stroke.points.some((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 0.035);
+      setAnnotations((state) => ({ ...state, strokes: state.strokes.filter((item) => item.page !== page || !item.points.some(hit)) }));
       return;
     }
     setAnnotations((state) => ({ ...state, strokes: [...state.strokes, { ...stroke, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, page }] }));
