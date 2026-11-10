@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "MD",
+    "slug": "md-reader",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "md",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      "expo-file-system"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.md.reader"
+    },
+    "android": {
+      "package": "com.md.reader",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1715"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

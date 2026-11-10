@@ -1,0 +1,2 @@
+import { PropsWithChildren } from 'react'; import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet, View } from 'react-native'; import { colors } from '@/constants/theme';
+export function Screen({children}:PropsWithChildren){return <SafeAreaView style={s.safe}><View style={s.body}>{children}</View></SafeAreaView>} const s=StyleSheet.create({safe:{flex:1,backgroundColor:colors.forest},body:{flex:1,maxWidth:1100,width:'100%',alignSelf:'center'}});

@@ -1,0 +1,1 @@
+import 'react-native-gesture-handler'; import { Stack } from 'expo-router'; import { StatusBar } from 'expo-status-bar'; import { colors } from '@/constants/theme'; export default function Layout(){return <><StatusBar style="light"/><Stack screenOptions={{headerShown:false,contentStyle:{backgroundColor:colors.forest}}}/></>;}
