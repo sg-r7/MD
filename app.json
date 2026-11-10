@@ -6,11 +6,12 @@
     "orientation": "default",
     "scheme": "md",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "plugins": [
       "expo-router",
       "expo-document-picker",
-      "expo-file-system"
+      "expo-file-system",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
@@ -22,6 +23,9 @@
     "android": {
       "package": "com.md.reader",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#0E1715"
       }
     },
