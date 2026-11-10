@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "MD",
-    "slug": "md-reader",
+    "slug": "md-pdf",
+    "owner": "sgr7s-team",
     "version": "1.0.0",
     "orientation": "default",
     "scheme": "md",
@@ -27,7 +28,12 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#0E1715"
-      }
+      },
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -35,7 +41,13 @@
     },
     "extra": {
       "router": {
-        "origin": false
+        "origin": false,
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "d4f249a9-442b-4739-8a21-a589619d9e8d"
       }
     }
   }
