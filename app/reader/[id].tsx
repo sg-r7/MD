@@ -54,8 +54,12 @@ export default function Reader() {
 
   const chooseTool = (next: Tool) => {
     setTool(next);
+    if (next === 'text') {
+      router.push('/editor');
+      return;
+    }
     if (['shape', 'lasso', 'text', 'image', 'sticker', 'ruler', 'magnifier'].includes(next)) {
-      Alert.alert(next.slice(0, 1).toUpperCase() + next.slice(1), 'This tool is enabled in the MD workspace and its editor panel will be added next.');
+      Alert.alert(next.slice(0, 1).toUpperCase() + next.slice(1), 'This workspace is ready for the next tool module.');
     }
   };
 

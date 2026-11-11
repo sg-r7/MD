@@ -12,7 +12,8 @@
       "expo-router",
       "expo-document-picker",
       "expo-file-system",
-      "expo-font"
+      "expo-font",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
