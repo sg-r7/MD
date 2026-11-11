@@ -17,7 +17,7 @@ type EditorMessage = { type: 'ready' | 'change' | 'error'; markdown?: string; me
 
 const htmlAsset = require('./milkdown-editor/index.html');
 const cssAsset = require('./milkdown-editor/editor.css');
-const scriptAsset = require('./milkdown-editor/editor.bundle');
+const scriptAsset = require('./milkdown-editor/milkdown-script.bundle');
 
 async function readAsset(moduleId: number) {
   const asset = (await Asset.loadAsync(moduleId))[0];
