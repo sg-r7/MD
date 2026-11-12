@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Pdf from 'react-native-pdf';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/theme';
 import { loadAnnotations, loadDocuments, saveAnnotations } from '@/lib/storage';
+import { loadEditorNote, markdownPreview } from '@/lib/editorStorage';
 import type { AnnotationState, DocumentRecord, Stroke } from '@/types';
 import { DrawingCanvas } from '@/components/DrawingCanvas';
 import { ToolBar, Tool } from '@/components/ToolBar';
@@ -25,6 +26,7 @@ export default function Reader() {
   const [size, setSize] = useState({ width: Dimensions.get('window').width, height: Dimensions.get('window').height - 170 });
   const [showMore, setShowMore] = useState(false);
   const [showPages, setShowPages] = useState(false);
+  const [savedNote, setSavedNote] = useState<string>();
 
   useEffect(() => {
     loadDocuments().then((documents) => setDoc(documents.find((item) => item.id === id)));
@@ -34,6 +36,12 @@ export default function Reader() {
   useEffect(() => {
     if (id) void saveAnnotations(id, annotations);
   }, [annotations, id]);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    if (id) loadEditorNote(`workspace-${id}`, id).then((note) => { if (active) setSavedNote(note ? markdownPreview(note.markdown) : undefined); });
+    return () => { active = false; };
+  }, [id]));
 
   const currentStrokes = useMemo(() => annotations.strokes.filter((stroke) => stroke.page === page), [annotations.strokes, page]);
   const drawingTool = tool === 'pen' || tool === 'highlight' || tool === 'eraser' ? tool : 'select';
@@ -55,7 +63,7 @@ export default function Reader() {
   const chooseTool = (next: Tool) => {
     setTool(next);
     if (next === 'text') {
-      router.push('/editor');
+      router.push({ pathname: '/editor', params: { documentId: id } });
       return;
     }
     if (['shape', 'lasso', 'text', 'image', 'sticker', 'ruler', 'magnifier'].includes(next)) {
@@ -80,6 +88,7 @@ export default function Reader() {
         <Pdf source={{ uri: doc.uri }} style={StyleSheet.absoluteFill} horizontal={false} enablePaging={false} onPageChanged={setPage} onError={() => Alert.alert('PDF error', 'This document could not be rendered on this device.')} />
         <DrawingCanvas strokes={currentStrokes} width={size.width} height={size.height} tool={drawingTool} color={color} strokeWidth={strokeWidth} onStrokeComplete={addStroke} />
         <View style={styles.pageBadge}><Text style={styles.pageBadgeText}>{page} / {pageCount}</Text></View>
+        {savedNote ? <Pressable style={styles.notePreview} onPress={() => router.push({ pathname: '/editor', params: { documentId: id } })}><Ionicons name="document-text-outline" size={16} color={colors.mint} /><Text numberOfLines={2} style={styles.notePreviewText}>{savedNote}</Text></Pressable> : null}
       </View>
 
       <ToolBar tool={tool} setTool={chooseTool} onExport={share} onMore={() => setShowMore(true)} />
@@ -99,6 +108,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.forest }, loading: { flex: 1, backgroundColor: colors.forest, alignItems: 'center', justifyContent: 'center' }, loadingText: { color: colors.ink },
   header: { minHeight: 76, paddingHorizontal: 14, paddingTop: 27, flexDirection: 'row', alignItems: 'center', gap: 7, borderBottomWidth: 1, borderBottomColor: colors.line }, headerButton: { padding: 8 }, heading: { flex: 1, paddingHorizontal: 4 }, title: { color: colors.ink, fontSize: 15, fontWeight: '800' }, subtitle: { color: colors.muted, fontSize: 11, marginTop: 3 },
   options: { backgroundColor: colors.panel, borderBottomWidth: 1, borderBottomColor: colors.line }, optionsContent: { alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 }, optionTitle: { color: colors.muted, fontSize: 10, fontWeight: '800', marginRight: 2 }, color: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'transparent' }, selectedColor: { borderColor: colors.ink, transform: [{ scale: 1.18 }] }, optionDivider: { width: 1, height: 22, backgroundColor: colors.line, marginHorizontal: 3 }, sizeButton: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' }, selectedSize: { backgroundColor: colors.panelAlt }, dot: { borderRadius: 20 },
-  viewer: { flex: 1, backgroundColor: '#46534E' }, pageBadge: { position: 'absolute', bottom: 83, alignSelf: 'center', backgroundColor: 'rgba(14,23,21,.88)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }, pageBadgeText: { color: colors.ink, fontSize: 11, fontWeight: '800' },
+  viewer: { flex: 1, backgroundColor: '#46534E' }, pageBadge: { position: 'absolute', bottom: 83, alignSelf: 'center', backgroundColor: 'rgba(14,23,21,.88)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }, pageBadgeText: { color: colors.ink, fontSize: 11, fontWeight: '800' }, notePreview: { position: 'absolute', left: 12, right: 12, bottom: 12, padding: 10, borderRadius: 13, backgroundColor: 'rgba(14,23,21,.94)', borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }, notePreviewText: { color: colors.ink, fontSize: 12, flex: 1 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,.48)' }, sheet: { backgroundColor: colors.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22, paddingBottom: 35 }, pageSheet: { height: '72%', backgroundColor: colors.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22 }, handle: { width: 42, height: 4, borderRadius: 3, backgroundColor: colors.line, alignSelf: 'center', marginBottom: 18 }, sheetTitle: { color: colors.ink, fontSize: 20, fontWeight: '800', marginBottom: 18 }, sheetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, sheetAction: { width: '47%', backgroundColor: colors.panelAlt, borderRadius: 16, padding: 13, gap: 10 }, sheetIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: colors.forest, alignItems: 'center', justifyContent: 'center' }, sheetActionText: { color: colors.ink, fontSize: 12, fontWeight: '700' }, pageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 20 }, pageTile: { width: 76, height: 94, borderRadius: 15, backgroundColor: colors.panelAlt, alignItems: 'center', justifyContent: 'center', gap: 9 }, activePageTile: { backgroundColor: colors.mint }, pageNumber: { color: colors.muted, fontWeight: '800' }, activePageNumber: { color: colors.forest },
 });
