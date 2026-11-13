@@ -29,18 +29,25 @@ Run checks with `pnpm typecheck` and `pnpm lint`.
 
 ## Architecture
 
-- `app/` contains Expo Router screens: library, reader, and settings.
+- `app/` contains Expo Router screens: library, reader, note editor, and settings.
 - `components/` contains reusable library cards, reader toolbar, Skia canvas, and layout primitives.
 - `hooks/useLibrary.ts` owns document import, search, filters, favorites, and persistence.
 - `lib/storage.ts` is the local persistence boundary. Replace it with SQLite/Cloud sync behind the same interface when sync is introduced.
 - `types/` defines document, stroke, sticky note, and settings contracts.
 - `constants/theme.ts` centralizes the visual system.
 
+## What's in 1.1
+
+- **Annotation tools**: pen, marker, eraser (segment-accurate), shapes (rectangle, ellipse, arrow, line), ruler (15° snapping), lasso (select, move, duplicate, recolor, delete), sticky notes, stickers, images, 2x/3x zoom with pan, undo/redo.
+- **Reader**: real page count, resume at the last page, reading progress, page jumper, page direction setting, one page per screen so annotations stay aligned.
+- **Library**: Recent (by last opened), sort (date/name/size), long-press menu (tag Study/Work, rename, delete), settings button.
+- **Settings now apply**: light/dark/system theme and haptics; page direction.
+- **Notes editor**: fixed a bug that corrupted the editor bundle when it was injected into the WebView, readable text in dark mode, autosave.
+- **Export**: "Share annotated PDF" flattens strokes, shapes, notes and images into a copy of the PDF using `pdf-lib`.
+
 ## PDF and annotation notes
 
-Imported PDFs are copied into the app's document directory so the library survives app restarts. Annotation state is stored separately by document ID, which keeps the original PDF immutable and allows future export pipelines to flatten strokes/notes into a new PDF. The reader already renders persisted strokes on top of the current page and exposes pen, marker, eraser, note, reading, and share tool states; the next native iteration can attach gesture capture to `DrawingCanvas` without changing storage contracts.
-
-For a production release, add a native PDF annotation/export bridge (for example a PSPDFKit/PDFTron integration or a custom PDFKit/PdfRenderer module) to flatten annotations into a shareable PDF. The current implementation shares the imported source document and preserves all local annotation data separately.
+Annotations are stored per document (normalised 0..1 against the reader viewport) and the original PDF is never modified. The reader shows one page per screen, fitted and centred (`fitPolicy=2`, paging on), and export assumes exactly that layout. Export limits: stickers are not drawn, and notes in non-Latin scripts (e.g. Arabic) are exported as a marker because the built-in PDF font cannot draw them. If strokes look offset on a specific device, check the page-fit assumption in `lib/exportPdf.ts`.
 
 ## Design direction
 

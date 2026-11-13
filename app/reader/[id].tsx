@@ -1,113 +1,386 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+/* eslint-disable react-hooks/refs, react-hooks/exhaustive-deps */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pdf from 'react-native-pdf';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '@/constants/theme';
-import { loadAnnotations, loadDocuments, saveAnnotations } from '@/lib/storage';
+import { ActionSheet, type SheetAction } from '@/components/ActionSheet';
+import { DrawingCanvas, type CanvasTool, type DraftStroke, type ShapeKind } from '@/components/DrawingCanvas';
+import { PageItems, type ItemKind } from '@/components/PageItems';
+import { PromptModal } from '@/components/PromptModal';
+import { ToolBar, type Tool } from '@/components/ToolBar';
 import { loadEditorNote, markdownPreview } from '@/lib/editorStorage';
-import type { AnnotationState, DocumentRecord, Stroke } from '@/types';
-import { DrawingCanvas } from '@/components/DrawingCanvas';
-import { ToolBar, Tool } from '@/components/ToolBar';
+import { exportAnnotatedPdf } from '@/lib/exportPdf';
+import { strokeHit, strokeInside, translateStroke, uid } from '@/lib/geometry';
+import { emptyAnnotations, loadAnnotations, loadDocuments, patchDocument, saveAnnotations } from '@/lib/storage';
+import { useTheme, type Palette } from '@/lib/theme';
+import type { AnnotationState, DocumentRecord, Point } from '@/types';
 
 const inkColors = ['#1D2925', '#EF4444', '#F59E0B', '#22C55E', '#3B82F6', '#A855F7', '#EC4899'];
 const strokeSizes = [2, 4, 7, 11];
+const shapes: { id: ShapeKind; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
+  { id: 'rect', icon: 'square-outline' }, { id: 'ellipse', icon: 'ellipse-outline' }, { id: 'arrow', icon: 'arrow-forward-outline' }, { id: 'line', icon: 'remove-outline' },
+];
+const stickers = ['⭐', '❤️', '👍', '✅', '❓', '❗', '💡', '📌', '🔥', '✔️', '❌', '🎯', '⚠️', '😀', '🤔', '📝'];
+const drawingTools: Tool[] = ['pen', 'highlight', 'eraser', 'shape', 'ruler', 'lasso'];
+const NONE: string[] = [];
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { colors, settings, tap } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   const [doc, setDoc] = useState<DocumentRecord>();
-  const [annotations, setAnnotations] = useState<AnnotationState>({ strokes: [], notes: [] });
+  const [missing, setMissing] = useState(false);
+  const [ann, setAnn] = useState<AnnotationState>(emptyAnnotations());
+  const annRef = useRef<AnnotationState>(ann);
+  const past = useRef<AnnotationState[]>([]);
+  const future = useRef<AnnotationState[]>([]);
+  const loadedRef = useRef(false);
+
   const [tool, setTool] = useState<Tool>('select');
-  const [page, setPage] = useState(1);
+  const [shapeKind, setShapeKind] = useState<ShapeKind>('rect');
   const [color, setColor] = useState('#1D2925');
   const [strokeWidth, setStrokeWidth] = useState(4);
-  const [size, setSize] = useState({ width: Dimensions.get('window').width, height: Dimensions.get('window').height - 170 });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageCount, setPageCount] = useState(1);
+  const [pdfReady, setPdfReady] = useState(false);
+  const [size, setSize] = useState({ width: 360, height: 600 });
+  const sizeRef = useRef(size);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const zoomRef = useRef(1); const panRef = useRef<Point>({ x: 0, y: 0 }); const panStart = useRef<Point>({ x: 0, y: 0 });
   const [showMore, setShowMore] = useState(false);
   const [showPages, setShowPages] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
+  const [noteDraft, setNoteDraft] = useState<{ id?: string; text: string } | null>(null);
+  const [itemSel, setItemSel] = useState<{ kind: ItemKind; id: string } | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [savedNote, setSavedNote] = useState<string>();
+  const pdfRef = useRef<Pdf>(null);
+  const pageRef = useRef(1);
+  const initialPage = useRef(1);
 
+  /* ---------- loading & persistence ---------- */
   useEffect(() => {
-    loadDocuments().then((documents) => setDoc(documents.find((item) => item.id === id)));
-    loadAnnotations(id).then(setAnnotations);
+    let on = true;
+    (async () => {
+      const [docs, saved] = await Promise.all([loadDocuments(), loadAnnotations(id)]);
+      if (!on) return;
+      const found = docs.find((d) => d.id === id);
+      if (!found) { setMissing(true); return; }
+      initialPage.current = found.lastPage ?? 1; pageRef.current = initialPage.current;
+      setPage(initialPage.current); setPageCount(found.pages ?? 1);
+      annRef.current = saved; setAnn(saved); loadedRef.current = true; setDoc(found);
+    })();
+    return () => { on = false; };
   }, [id]);
 
   useEffect(() => {
-    if (id) void saveAnnotations(id, annotations);
-  }, [annotations, id]);
+    if (!loadedRef.current || !id) return undefined;
+    const timer = setTimeout(() => { void saveAnnotations(id, ann); }, 400);
+    return () => clearTimeout(timer);
+  }, [ann, id]);
+  useEffect(() => () => { if (loadedRef.current && id) void saveAnnotations(id, annRef.current); }, [id]);
+
+  const progress = useRef({ page: 1, pageCount: 1, known: false });
+  progress.current = { page, pageCount, known: pdfReady };
+  const flushProgress = () => {
+    const p = progress.current;
+    if (id && p.known) void patchDocument(id, { progress: p.page / Math.max(p.pageCount, 1), lastPage: p.page, pages: p.pageCount, lastOpenedAt: new Date().toISOString() });
+  };
+  useEffect(() => { if (!pdfReady) return undefined; const t = setTimeout(flushProgress, 700); return () => clearTimeout(t); }, [page, pageCount, pdfReady]);
+  useEffect(() => flushProgress, [id]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
-    if (id) loadEditorNote(`workspace-${id}`, id).then((note) => { if (active) setSavedNote(note ? markdownPreview(note.markdown) : undefined); });
+    if (id) loadEditorNote(`workspace-${id}`, id).then((note) => { if (active) setSavedNote(note ? markdownPreview(note.markdown) || undefined : undefined); });
     return () => { active = false; };
   }, [id]));
 
-  const currentStrokes = useMemo(() => annotations.strokes.filter((stroke) => stroke.page === page), [annotations.strokes, page]);
-  const drawingTool = tool === 'pen' || tool === 'highlight' || tool === 'eraser' ? tool : 'select';
-  const pageCount = Math.max(doc?.pages ?? 1, page);
+  useEffect(() => { setSelected([]); }, [page, tool]);
 
-  const share = async () => {
-    if (doc && await Sharing.isAvailableAsync()) await Sharing.shareAsync(doc.uri, { dialogTitle: 'Share annotated document' });
+  /* ---------- annotation state with undo/redo ---------- */
+  const commit = (fn: (s: AnnotationState) => AnnotationState) => {
+    const next = { ...fn(annRef.current), view: sizeRef.current };
+    past.current = [...past.current.slice(-29), annRef.current];
+    future.current = [];
+    annRef.current = next; setAnn(next);
   };
+  const undo = () => { const prev = past.current.pop(); if (!prev) return; future.current.push(annRef.current); annRef.current = prev; setAnn(prev); tap(); };
+  const redo = () => { const next = future.current.pop(); if (!next) return; past.current.push(annRef.current); annRef.current = next; setAnn(next); tap(); };
 
-  const addStroke = (stroke: Stroke) => {
-    if (stroke.tool === 'eraser') {
-      const hit = (point: { x: number; y: number }) => stroke.points.some((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 0.035);
-      setAnnotations((state) => ({ ...state, strokes: state.strokes.filter((item) => item.page !== page || !item.points.some(hit)) }));
-      return;
-    }
-    setAnnotations((state) => ({ ...state, strokes: [...state.strokes, { ...stroke, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, page }] }));
+  const pageStrokes = useMemo(() => ann.strokes.filter((s) => s.page === page), [ann.strokes, page]);
+  const pageNotes = useMemo(() => ann.notes.filter((n) => n.page === page), [ann.notes, page]);
+  const pageImages = useMemo(() => ann.images.filter((i) => i.page === page), [ann.images, page]);
+
+  const onStroke = (draft: DraftStroke) => { commit((s) => ({ ...s, strokes: [...s.strokes, { ...draft, id: uid(), page }] })); tap(); };
+  const onErase = (points: Point[]) => {
+    const { width, height } = sizeRef.current;
+    const hit = annRef.current.strokes.filter((s) => s.page === page && strokeHit(s, points, width, height, 12)).map((s) => s.id);
+    if (!hit.length) return;
+    commit((s) => ({ ...s, strokes: s.strokes.filter((x) => !hit.includes(x.id)) })); tap();
   };
+  const onLasso = (poly: Point[]) => {
+    if (poly.length < 3) { setSelected([]); return; }
+    const ids = annRef.current.strokes.filter((s) => s.page === page && strokeInside(s, poly)).map((s) => s.id);
+    setSelected(ids); if (ids.length) tap();
+  };
+  const onMoveSelection = (dx: number, dy: number) => commit((s) => ({ ...s, strokes: s.strokes.map((x) => (selected.includes(x.id) ? translateStroke(x, dx, dy) : x)) }));
+  const deleteSelection = () => { commit((s) => ({ ...s, strokes: s.strokes.filter((x) => !selected.includes(x.id)) })); setSelected([]); };
+  const duplicateSelection = () => {
+    const copies = annRef.current.strokes.filter((x) => selected.includes(x.id)).map((x) => ({ ...translateStroke(x, 0.03, 0.03), id: uid() }));
+    commit((s) => ({ ...s, strokes: [...s.strokes, ...copies] })); setSelected(copies.map((c) => c.id));
+  };
+  const recolorSelection = () => commit((s) => ({ ...s, strokes: s.strokes.map((x) => (selected.includes(x.id) ? { ...x, color } : x)) }));
+
+  /* ---------- notes, stickers, images ---------- */
+  const centerX = (px: number) => Math.max(0.02, 0.5 - px / 2 / Math.max(sizeRef.current.width, 1));
+  const saveNote = (text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    if (noteDraft?.id) commit((s) => ({ ...s, notes: s.notes.map((n) => (n.id === noteDraft.id ? { ...n, text: clean } : n)) }));
+    else commit((s) => ({ ...s, notes: [...s.notes, { id: uid(), page, x: centerX(150), y: 0.3, text: clean, color: '#FDE68A', kind: 'note' }] }));
+    tap();
+  };
+  const addSticker = (emoji: string) => { commit((s) => ({ ...s, notes: [...s.notes, { id: uid(), page, x: centerX(44), y: 0.4, text: emoji, color: 'transparent', kind: 'sticker', size: 44 }] })); tap(); };
+  const addImage = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'image/*', copyToCacheDirectory: true, multiple: false });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const base = `${FileSystem.documentDirectory}images/`;
+      await FileSystem.makeDirectoryAsync(base, { intermediates: true }).catch(() => {});
+      const dest = `${base}${uid()}-${asset.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      await FileSystem.copyAsync({ from: asset.uri, to: dest });
+      const aspect = await new Promise<number>((resolve) => Image.getSize(dest, (w, h) => resolve(h ? w / h : 1), () => resolve(1)));
+      commit((s) => ({ ...s, images: [...s.images, { id: uid(), page, x: centerX(size.width * 0.4), y: 0.25, w: 0.4, aspect, uri: dest }] }));
+      tap();
+    } catch (error) { Alert.alert('Image failed', error instanceof Error ? error.message : 'The image could not be added.'); }
+  };
+  const moveItem = (kind: ItemKind, itemId: string, x: number, y: number) =>
+    commit((s) => (kind === 'image' ? { ...s, images: s.images.map((i) => (i.id === itemId ? { ...i, x, y } : i)) } : { ...s, notes: s.notes.map((n) => (n.id === itemId ? { ...n, x, y } : n)) }));
+  const resizeItem = (factor: number) => {
+    if (!itemSel) return;
+    commit((s) => (itemSel.kind === 'image'
+      ? { ...s, images: s.images.map((i) => (i.id === itemSel.id ? { ...i, w: clampN(i.w * factor, 0.1, 1) } : i)) }
+      : { ...s, notes: s.notes.map((n) => (n.id === itemSel.id ? { ...n, size: clampN((n.size ?? 44) * factor, 20, 160) } : n)) }));
+  };
+  const deleteItem = () => {
+    if (!itemSel) return;
+    // Image files stay on disk so undo can restore them; they are removed when the document is deleted.
+    commit((s) => ({ ...s, images: s.images.filter((i) => i.id !== itemSel.id), notes: s.notes.filter((n) => n.id !== itemSel.id) }));
+  };
+  const selectedNote = itemSel?.kind === 'note' ? ann.notes.find((n) => n.id === itemSel.id) : undefined;
+
+  /* ---------- zoom / pan ---------- */
+  const [panResponder] = useState(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { panStart.current = panRef.current; },
+    onPanResponderMove: (_, g) => {
+      const z = zoomRef.current; const s = sizeRef.current;
+      const mx = ((z - 1) * s.width) / 2; const my = ((z - 1) * s.height) / 2;
+      const next = { x: clampN(panStart.current.x + g.dx, -mx, mx), y: clampN(panStart.current.y + g.dy, -my, my) };
+      panRef.current = next; setPan(next);
+    },
+  }));
+  const setZoomLevel = (z: number) => { zoomRef.current = z; panRef.current = { x: 0, y: 0 }; setZoom(z); setPan({ x: 0, y: 0 }); };
 
   const chooseTool = (next: Tool) => {
+    tap();
+    if (next === 'magnifier') { const z = zoom === 1 ? 2 : zoom === 2 ? 3 : 1; setZoomLevel(z); setTool(z === 1 ? 'select' : 'magnifier'); return; }
+    if (next === 'text') { setNoteDraft({ text: '' }); setTool('select'); return; }
+    if (next === 'sticker') { setShowStickers(true); setTool('select'); return; }
+    if (next === 'image') { setTool('select'); void addImage(); return; }
     setTool(next);
-    if (next === 'text') {
-      router.push({ pathname: '/editor', params: { documentId: id } });
-      return;
-    }
-    if (['shape', 'lasso', 'text', 'image', 'sticker', 'ruler', 'magnifier'].includes(next)) {
-      Alert.alert(next.slice(0, 1).toUpperCase() + next.slice(1), 'This workspace is ready for the next tool module.');
-    }
   };
 
-  if (!doc) return <View style={styles.loading}><Text style={styles.loadingText}>Opening document…</Text></View>;
+  /* ---------- sharing ---------- */
+  const share = async (annotated: boolean) => {
+    if (!doc) return;
+    if (!(await Sharing.isAvailableAsync())) { Alert.alert('Sharing unavailable', 'Sharing is not supported on this device.'); return; }
+    const a = annRef.current;
+    const has = a.strokes.length > 0 || a.images.length > 0 || a.notes.some((n) => n.kind !== 'sticker');
+    try {
+      if (annotated && has) {
+        setExporting(true);
+        const path = await exportAnnotatedPdf(doc, a);
+        await Sharing.shareAsync(path, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Share annotated document' });
+      } else await Sharing.shareAsync(doc.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Share document' });
+    } catch (error) { Alert.alert('Export failed', error instanceof Error ? error.message : 'The document could not be exported.'); } finally { setExporting(false); }
+  };
+
+  const goToPage = (n: number) => { pdfRef.current?.setPage(n); setPage(n); pageRef.current = n; };
+  const mountPage = useMemo(() => pageRef.current, [settings.pageMode, doc?.id]);
+
+  if (missing) return <View style={styles.loading}><Text style={styles.loadingText}>This document is no longer in your library.</Text><Pressable onPress={() => router.back()} style={styles.backLink}><Text style={styles.backLinkText}>Go back</Text></Pressable></View>;
+  if (!doc) return <View style={styles.loading}><ActivityIndicator color={colors.mint} /><Text style={[styles.loadingText, { marginTop: 10 }]}>Opening document…</Text></View>;
+
+  const canvasTool: CanvasTool = drawingTools.includes(tool) ? (tool as CanvasTool) : 'select';
+  const showOptions = tool === 'pen' || tool === 'highlight' || tool === 'shape' || tool === 'ruler';
+  const hasPageContent = pageStrokes.length + pageNotes.length + pageImages.length > 0;
+
+  const moreActions: SheetAction[] = [
+    { icon: 'share-outline', label: 'Share annotated PDF', onPress: () => void share(true) },
+    { icon: 'document-outline', label: 'Share original', onPress: () => void share(false) },
+    { icon: 'create-outline', label: 'Study notes', onPress: () => router.push({ pathname: '/editor', params: { documentId: id } }) },
+    { icon: 'trash-outline', label: 'Clear this page', danger: true, onPress: () => setConfirmClear(true) },
+    { icon: 'settings-outline', label: 'Reader settings', onPress: () => router.push('/settings') },
+  ];
+  const itemActions: SheetAction[] = [
+    ...(selectedNote && selectedNote.kind !== 'sticker' ? [{ icon: 'create-outline' as const, label: 'Edit text', onPress: () => setNoteDraft({ id: selectedNote.id, text: selectedNote.text }) }] : []),
+    ...(selectedNote?.kind === 'note' ? [] : [
+      { icon: 'add-circle-outline' as const, label: 'Bigger', onPress: () => resizeItem(1.25) },
+      { icon: 'remove-circle-outline' as const, label: 'Smaller', onPress: () => resizeItem(0.8) },
+    ]),
+    { icon: 'trash-outline', label: 'Delete', danger: true, onPress: deleteItem },
+  ];
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton}><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
         <View style={styles.heading}><Text numberOfLines={1} style={styles.title}>{doc.name}</Text><Text style={styles.subtitle}>MD workspace  ·  {page}/{pageCount}</Text></View>
         <Pressable onPress={() => setShowPages(true)} style={styles.headerButton}><Ionicons name="grid-outline" size={21} color={colors.mint} /></Pressable>
         <Pressable onPress={() => setShowMore(true)} style={styles.headerButton}><Ionicons name="ellipsis-vertical" size={21} color={colors.mint} /></Pressable>
       </View>
 
-      {(tool === 'pen' || tool === 'highlight') && <View style={styles.options}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionsContent}><Text style={styles.optionTitle}>Color</Text>{inkColors.map((item) => <Pressable key={item} onPress={() => setColor(item)} style={[styles.color, { backgroundColor: item }, color === item && styles.selectedColor]} />)}<View style={styles.optionDivider} /><Text style={styles.optionTitle}>Size</Text>{strokeSizes.map((item) => <Pressable key={item} onPress={() => setStrokeWidth(item)} style={[styles.sizeButton, strokeWidth === item && styles.selectedSize]}><View style={[styles.dot, { width: item + 3, height: item + 3, backgroundColor: color }]} /></Pressable>)}</ScrollView></View>}
+      {showOptions && (
+        <View style={styles.options}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionsContent}>
+            {tool === 'shape' && <>{shapes.map((sh) => <Pressable key={sh.id} onPress={() => setShapeKind(sh.id)} style={[styles.sizeButton, shapeKind === sh.id && styles.selectedSize]}><Ionicons name={sh.icon} size={18} color={shapeKind === sh.id ? colors.mint : colors.muted} /></Pressable>)}<View style={styles.optionDivider} /></>}
+            <Text style={styles.optionTitle}>Color</Text>
+            {inkColors.map((item) => <Pressable key={item} onPress={() => setColor(item)} style={[styles.color, { backgroundColor: item }, color === item && styles.selectedColor]} />)}
+            <View style={styles.optionDivider} />
+            <Text style={styles.optionTitle}>Size</Text>
+            {strokeSizes.map((item) => <Pressable key={item} onPress={() => setStrokeWidth(item)} style={[styles.sizeButton, strokeWidth === item && styles.selectedSize]}><View style={[styles.dot, { width: item + 3, height: item + 3, backgroundColor: color }]} /></Pressable>)}
+          </ScrollView>
+        </View>
+      )}
 
-      <View style={styles.viewer} onLayout={(event) => setSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
-        <Pdf source={{ uri: doc.uri }} style={StyleSheet.absoluteFill} horizontal={false} enablePaging={false} onPageChanged={setPage} onError={() => Alert.alert('PDF error', 'This document could not be rendered on this device.')} />
-        <DrawingCanvas strokes={currentStrokes} width={size.width} height={size.height} tool={drawingTool} color={color} strokeWidth={strokeWidth} onStrokeComplete={addStroke} />
-        <View style={styles.pageBadge}><Text style={styles.pageBadgeText}>{page} / {pageCount}</Text></View>
+      <View style={styles.viewer} onLayout={(e) => { const { width, height } = e.nativeEvent.layout; sizeRef.current = { width, height }; setSize({ width, height }); }}>
+        <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: zoom }] }]}>
+          <Pdf
+            key={settings.pageMode} ref={pdfRef} source={{ uri: doc.uri }} style={StyleSheet.absoluteFill}
+            horizontal={settings.pageMode === 'horizontal'} enablePaging fitPolicy={2} spacing={0} minScale={1} maxScale={1} enableDoubleTapZoom={false} page={mountPage}
+            onLoadComplete={(n) => { setPageCount(n); setPdfReady(true); }}
+            onPageChanged={(p, n) => { setPage(p); pageRef.current = p; if (n) setPageCount(n); }}
+            onError={() => Alert.alert('PDF error', 'This document could not be rendered on this device.')}
+          />
+          <DrawingCanvas strokes={pageStrokes} width={size.width} height={size.height} tool={canvasTool} shapeKind={shapeKind} color={color} strokeWidth={strokeWidth}
+            selectedIds={tool === 'lasso' ? selected : NONE} onStroke={onStroke} onErase={onErase} onLasso={onLasso} onMoveSelection={onMoveSelection} />
+          <PageItems notes={pageNotes} images={pageImages} width={size.width} height={size.height} zoom={zoom} interactive={tool === 'select'} onMove={moveItem} onPress={(kind, itemId) => setItemSel({ kind, id: itemId })} />
+        </View>
+        {tool === 'magnifier' && zoom > 1 && <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers} />}
+
+        <View pointerEvents="none" style={styles.pageBadge}><Text style={styles.pageBadgeText}>{page} / {pageCount}{zoom > 1 ? `  ·  ${zoom}x` : ''}</Text></View>
+        {tool === 'lasso' && selected.length > 0 && (
+          <View style={styles.selectionBar}>
+            <Pressable style={styles.selBtn} onPress={deleteSelection}><Ionicons name="trash-outline" size={18} color={colors.danger} /></Pressable>
+            <Pressable style={styles.selBtn} onPress={duplicateSelection}><Ionicons name="copy-outline" size={18} color={colors.mint} /></Pressable>
+            <Pressable style={styles.selBtn} onPress={recolorSelection}><View style={[styles.dot, { width: 16, height: 16, backgroundColor: color }]} /></Pressable>
+            <Pressable style={styles.selBtn} onPress={() => setSelected([])}><Ionicons name="checkmark" size={20} color={colors.mint} /></Pressable>
+          </View>
+        )}
         {savedNote ? <Pressable style={styles.notePreview} onPress={() => router.push({ pathname: '/editor', params: { documentId: id } })}><Ionicons name="document-text-outline" size={16} color={colors.mint} /><Text numberOfLines={2} style={styles.notePreviewText}>{savedNote}</Text></Pressable> : null}
+        {exporting && <View style={styles.exporting}><ActivityIndicator color={colors.mint} /><Text style={styles.exportingText}>Preparing annotated PDF…</Text></View>}
       </View>
 
-      <ToolBar tool={tool} setTool={chooseTool} onExport={share} onMore={() => setShowMore(true)} />
+      <ToolBar tool={tool} setTool={chooseTool} zoom={zoom} canUndo={past.current.length > 0} canRedo={future.current.length > 0} onUndo={undo} onRedo={redo} onExport={() => void share(true)} onMore={() => setShowMore(true)} />
 
-      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}><Pressable style={styles.modalBackdrop} onPress={() => setShowMore(false)}><View style={styles.sheet} onStartShouldSetResponder={() => true}><View style={styles.handle} /><Text style={styles.sheetTitle}>Document tools</Text><View style={styles.sheetGrid}><SheetAction icon="share-outline" label="Export & share" onPress={() => { setShowMore(false); void share(); }} /><SheetAction icon="save-outline" label="Saved locally" onPress={() => { setShowMore(false); Alert.alert('Saved', 'Annotations are saved automatically on this device.'); }} /><SheetAction icon="trash-outline" label="Clear strokes" onPress={() => { setShowMore(false); setAnnotations((state) => ({ ...state, strokes: state.strokes.filter((stroke) => stroke.page !== page) })); }} /><SheetAction icon="settings-outline" label="Reader settings" onPress={() => { setShowMore(false); router.push('/settings'); }} /></View></View></Pressable></Modal>
+      <ActionSheet visible={showMore} title="Document tools" actions={moreActions} onClose={() => setShowMore(false)} />
+      <ActionSheet visible={!!itemSel && !noteDraft} title={selectedNote ? (selectedNote.kind === 'sticker' ? 'Sticker' : 'Note') : 'Image'} actions={itemActions} onClose={() => setItemSel(null)} />
+      <ActionSheet visible={confirmClear} title={hasPageContent ? `Remove everything on page ${page}?` : 'Nothing to clear on this page'} onClose={() => setConfirmClear(false)}
+        actions={hasPageContent ? [
+          { icon: 'trash', label: 'Clear page', danger: true, onPress: () => commit((s) => ({ ...s, strokes: s.strokes.filter((x) => x.page !== page), notes: s.notes.filter((x) => x.page !== page), images: s.images.filter((x) => x.page !== page) })) },
+          { icon: 'close', label: 'Cancel', onPress: () => {} },
+        ] : [{ icon: 'close', label: 'OK', onPress: () => {} }]} />
+      <PromptModal visible={!!noteDraft} title={noteDraft?.id ? 'Edit note' : 'New sticky note'} initial={noteDraft?.text ?? ''} placeholder="Write a note…" multiline
+        onSubmit={saveNote} onClose={() => { setNoteDraft(null); setItemSel(null); }} />
 
-      <Modal visible={showPages} transparent animationType="slide" onRequestClose={() => setShowPages(false)}><Pressable style={styles.modalBackdrop} onPress={() => setShowPages(false)}><View style={styles.pageSheet} onStartShouldSetResponder={() => true}><View style={styles.handle} /><Text style={styles.sheetTitle}>Pages</Text><ScrollView contentContainerStyle={styles.pageGrid}>{Array.from({ length: pageCount }, (_, index) => index + 1).map((item) => <Pressable key={item} onPress={() => { setPage(item); setShowPages(false); }} style={[styles.pageTile, item === page && styles.activePageTile]}><Ionicons name="document-text-outline" size={25} color={item === page ? colors.forest : colors.muted} /><Text style={[styles.pageNumber, item === page && styles.activePageNumber]}>{item}</Text></Pressable>)}</ScrollView></View></Pressable></Modal>
+      <Modal visible={showStickers} transparent animationType="slide" onRequestClose={() => setShowStickers(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowStickers(false)}>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.handle} /><Text style={styles.sheetTitle}>Stickers</Text>
+            <View style={styles.stickerGrid}>{stickers.map((e) => <Pressable key={e} style={styles.stickerCell} onPress={() => { setShowStickers(false); addSticker(e); }}><Text style={styles.stickerText}>{e}</Text></Pressable>)}</View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showPages} transparent animationType="slide" onRequestClose={() => setShowPages(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowPages(false)}>
+          <View style={styles.pageSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.handle} /><Text style={styles.sheetTitle}>Pages</Text>
+            <ScrollView contentContainerStyle={styles.pageGrid}>
+              {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => {
+                const marks = ann.strokes.some((s) => s.page === n) || ann.notes.some((x) => x.page === n) || ann.images.some((x) => x.page === n);
+                return (
+                  <Pressable key={n} onPress={() => { setShowPages(false); goToPage(n); }} style={[styles.pageTile, n === page && styles.activePageTile]}>
+                    <Ionicons name="document-text-outline" size={25} color={n === page ? colors.onMint : colors.muted} />
+                    <Text style={[styles.pageNumber, n === page && styles.activePageNumber]}>{n}</Text>
+                    {marks && <View style={styles.markDot} />}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
-function SheetAction({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
-  return <Pressable onPress={onPress} style={styles.sheetAction}><View style={styles.sheetIcon}><Ionicons name={icon} size={21} color={colors.mint} /></View><Text style={styles.sheetActionText}>{label}</Text></Pressable>;
-}
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.forest }, loading: { flex: 1, backgroundColor: colors.forest, alignItems: 'center', justifyContent: 'center' }, loadingText: { color: colors.ink },
-  header: { minHeight: 76, paddingHorizontal: 14, paddingTop: 27, flexDirection: 'row', alignItems: 'center', gap: 7, borderBottomWidth: 1, borderBottomColor: colors.line }, headerButton: { padding: 8 }, heading: { flex: 1, paddingHorizontal: 4 }, title: { color: colors.ink, fontSize: 15, fontWeight: '800' }, subtitle: { color: colors.muted, fontSize: 11, marginTop: 3 },
-  options: { backgroundColor: colors.panel, borderBottomWidth: 1, borderBottomColor: colors.line }, optionsContent: { alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 }, optionTitle: { color: colors.muted, fontSize: 10, fontWeight: '800', marginRight: 2 }, color: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'transparent' }, selectedColor: { borderColor: colors.ink, transform: [{ scale: 1.18 }] }, optionDivider: { width: 1, height: 22, backgroundColor: colors.line, marginHorizontal: 3 }, sizeButton: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' }, selectedSize: { backgroundColor: colors.panelAlt }, dot: { borderRadius: 20 },
-  viewer: { flex: 1, backgroundColor: '#46534E' }, pageBadge: { position: 'absolute', bottom: 83, alignSelf: 'center', backgroundColor: 'rgba(14,23,21,.88)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }, pageBadgeText: { color: colors.ink, fontSize: 11, fontWeight: '800' }, notePreview: { position: 'absolute', left: 12, right: 12, bottom: 12, padding: 10, borderRadius: 13, backgroundColor: 'rgba(14,23,21,.94)', borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 8 }, notePreviewText: { color: colors.ink, fontSize: 12, flex: 1 },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,.48)' }, sheet: { backgroundColor: colors.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22, paddingBottom: 35 }, pageSheet: { height: '72%', backgroundColor: colors.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22 }, handle: { width: 42, height: 4, borderRadius: 3, backgroundColor: colors.line, alignSelf: 'center', marginBottom: 18 }, sheetTitle: { color: colors.ink, fontSize: 20, fontWeight: '800', marginBottom: 18 }, sheetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, sheetAction: { width: '47%', backgroundColor: colors.panelAlt, borderRadius: 16, padding: 13, gap: 10 }, sheetIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: colors.forest, alignItems: 'center', justifyContent: 'center' }, sheetActionText: { color: colors.ink, fontSize: 12, fontWeight: '700' }, pageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 20 }, pageTile: { width: 76, height: 94, borderRadius: 15, backgroundColor: colors.panelAlt, alignItems: 'center', justifyContent: 'center', gap: 9 }, activePageTile: { backgroundColor: colors.mint }, pageNumber: { color: colors.muted, fontWeight: '800' }, activePageNumber: { color: colors.forest },
+const makeStyles = (c: Palette) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.forest },
+  loading: { flex: 1, backgroundColor: c.forest, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  loadingText: { color: c.ink, textAlign: 'center' },
+  backLink: { marginTop: 16, backgroundColor: c.lime, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 13 },
+  backLinkText: { color: c.onLime, fontWeight: '800' },
+  header: { paddingBottom: 8, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 7, borderBottomWidth: 1, borderBottomColor: c.line },
+  headerButton: { padding: 8 },
+  heading: { flex: 1, paddingHorizontal: 4 },
+  title: { color: c.ink, fontSize: 15, fontWeight: '800' },
+  subtitle: { color: c.muted, fontSize: 11, marginTop: 3 },
+  options: { backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.line },
+  optionsContent: { alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+  optionTitle: { color: c.muted, fontSize: 10, fontWeight: '800', marginRight: 2 },
+  color: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'transparent' },
+  selectedColor: { borderColor: c.ink, transform: [{ scale: 1.18 }] },
+  optionDivider: { width: 1, height: 22, backgroundColor: c.line, marginHorizontal: 3 },
+  sizeButton: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  selectedSize: { backgroundColor: c.panelAlt },
+  dot: { borderRadius: 20 },
+  viewer: { flex: 1, backgroundColor: '#46534E', overflow: 'hidden' },
+  pageBadge: { position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: c.panel, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
+  pageBadgeText: { color: c.ink, fontSize: 11, fontWeight: '800' },
+  selectionBar: { position: 'absolute', top: 10, alignSelf: 'center', flexDirection: 'row', gap: 4, backgroundColor: c.panel, borderColor: c.line, borderWidth: 1, borderRadius: 16, padding: 4 },
+  selBtn: { width: 40, height: 36, alignItems: 'center', justifyContent: 'center' },
+  notePreview: { position: 'absolute', left: 12, right: 12, bottom: 48, padding: 10, borderRadius: 13, backgroundColor: c.panel, borderWidth: 1, borderColor: c.line, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  notePreviewText: { color: c.ink, fontSize: 12, flex: 1 },
+  exporting: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,.45)', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  exportingText: { color: '#fff', fontWeight: '700' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,.48)' },
+  sheet: { backgroundColor: c.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22, paddingBottom: 35 },
+  pageSheet: { height: '72%', backgroundColor: c.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22 },
+  handle: { width: 42, height: 4, borderRadius: 3, backgroundColor: c.line, alignSelf: 'center', marginBottom: 18 },
+  sheetTitle: { color: c.ink, fontSize: 20, fontWeight: '800', marginBottom: 18 },
+  stickerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  stickerCell: { width: 66, height: 66, borderRadius: 16, backgroundColor: c.panelAlt, alignItems: 'center', justifyContent: 'center' },
+  stickerText: { fontSize: 32 },
+  pageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 20 },
+  pageTile: { width: 76, height: 94, borderRadius: 15, backgroundColor: c.panelAlt, alignItems: 'center', justifyContent: 'center', gap: 9 },
+  activePageTile: { backgroundColor: c.mint },
+  pageNumber: { color: c.muted, fontWeight: '800' },
+  activePageNumber: { color: c.onMint },
+  markDot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: c.amber },
 });

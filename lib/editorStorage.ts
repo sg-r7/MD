@@ -43,3 +43,8 @@ export function markdownPreview(markdown: string) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+export async function deleteEditorNote(id: string) {
+  const notes = await readNotes();
+  await AsyncStorage.setItem(KEY, JSON.stringify(notes.filter((item) => item.id !== id)));
+}
