@@ -7,7 +7,11 @@ type Props = { visible: boolean; title: string; initial?: string; placeholder?: 
 export function PromptModal({ visible, title, initial = '', placeholder, multiline, submitLabel = 'Save', onSubmit, onClose }: Props) {
   const { colors } = useTheme();
   const [value, setValue] = useState(initial);
-  useEffect(() => { if (visible) setValue(initial); }, [visible, initial]);
+  useEffect(() => {
+    if (!visible) return undefined;
+    const timer = setTimeout(() => setValue(initial), 0);
+    return () => clearTimeout(timer);
+  }, [visible, initial]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.backdrop}>
