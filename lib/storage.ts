@@ -6,7 +6,7 @@ const read = async <T>(key: string, fallback: T): Promise<T> => {
   try { const raw = await AsyncStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : fallback; } catch { return fallback; }
 };
 
-export const defaultSettings: AppSettings = { theme: 'system', pageMode: 'vertical', haptics: true };
+export const defaultSettings: AppSettings = { theme: 'system', pageMode: 'vertical', haptics: true, language: 'system', nightMode: false };
 export const emptyAnnotations = (): AnnotationState => ({ strokes: [], notes: [], images: [] });
 
 export const loadDocuments = () => read<DocumentRecord[]>(KEYS.docs, []);

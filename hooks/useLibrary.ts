@@ -4,6 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '@/constants/theme';
 import { deleteEditorNote } from '@/lib/editorStorage';
+import { useTheme } from '@/lib/theme';
 import { loadAnnotations, loadDocuments, removeAnnotations, saveDocuments } from '@/lib/storage';
 import type { DocumentRecord, SortMode, Tag } from '@/types';
 
@@ -11,6 +12,7 @@ const accents = [colors.mint, colors.lime, colors.amber, '#B9A7FF', '#FF9FBD'];
 const sorts: SortMode[] = ['date', 'name', 'size'];
 
 export function useLibrary() {
+  const { t } = useTheme();
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const docsRef = useRef<DocumentRecord[]>([]);
   const [query, setQuery] = useState('');
@@ -46,9 +48,9 @@ export function useLibrary() {
       };
       persist([doc, ...docsRef.current]);
     } catch (error) {
-      Alert.alert('Import failed', error instanceof Error ? error.message : 'The file could not be imported.');
+      Alert.alert(t('Import failed'), error instanceof Error ? error.message : t('The file could not be imported.'));
     }
-  }, [persist]);
+  }, [persist, t]);
 
   const toggleFavorite = (id: string) => patch(id, { favorite: !docsRef.current.find((d) => d.id === id)?.favorite });
   const toggleTag = (id: string, tag: 'Work' | 'Study') => {

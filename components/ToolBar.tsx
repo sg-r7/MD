@@ -24,27 +24,27 @@ const tools: { id: Tool; icon: IconName; label: string }[] = [
 type Props = { tool: Tool; setTool: (tool: Tool) => void; zoom: number; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; onExport: () => void; onMore: () => void };
 
 export function ToolBar({ tool, setTool, zoom, canUndo, canRedo, onUndo, onRedo, onExport, onMore }: Props) {
-  const { colors } = useTheme();
+  const { colors, t } = useTheme();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={[s.shell, { marginBottom: Math.max(insets.bottom, 8) }]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.content}>
-        <Pressable onPress={onUndo} disabled={!canUndo} style={[s.tool, !canUndo && s.off]}><Ionicons name="arrow-undo-outline" size={19} color={colors.mint} /><Text style={[s.label, s.accent]}>Undo</Text></Pressable>
-        <Pressable onPress={onRedo} disabled={!canRedo} style={[s.tool, !canRedo && s.off]}><Ionicons name="arrow-redo-outline" size={19} color={colors.mint} /><Text style={[s.label, s.accent]}>Redo</Text></Pressable>
+        <Pressable onPress={onUndo} disabled={!canUndo} style={[s.tool, !canUndo && s.off]}><Ionicons name="arrow-undo-outline" size={19} color={colors.mint} /><Text style={[s.label, s.accent]}>{t('Undo')}</Text></Pressable>
+        <Pressable onPress={onRedo} disabled={!canRedo} style={[s.tool, !canRedo && s.off]}><Ionicons name="arrow-redo-outline" size={19} color={colors.mint} /><Text style={[s.label, s.accent]}>{t('Redo')}</Text></Pressable>
         <View style={s.sep} />
         {tools.map((item) => {
           const on = tool === item.id;
           return (
             <Pressable key={item.id} onPress={() => setTool(item.id)} style={[s.tool, on && s.selected]}>
               <Ionicons name={item.icon} size={19} color={on ? colors.onMint : colors.muted} />
-              <Text style={[s.label, on && s.selectedLabel]}>{item.id === 'magnifier' && zoom > 1 ? `${zoom}x` : item.label}</Text>
+              <Text style={[s.label, on && s.selectedLabel]}>{item.id === 'magnifier' && zoom > 1 ? `${zoom}x` : t(item.label)}</Text>
             </Pressable>
           );
         })}
         <View style={s.sep} />
-        <Pressable onPress={onMore} style={s.tool}><Ionicons name="ellipsis-horizontal" size={20} color={colors.mint} /><Text style={[s.label, s.accent]}>More</Text></Pressable>
-        <Pressable onPress={onExport} style={s.tool}><Ionicons name="share-outline" size={20} color={colors.mint} /><Text style={[s.label, s.accent]}>Share</Text></Pressable>
+        <Pressable onPress={onMore} style={s.tool}><Ionicons name="ellipsis-horizontal" size={20} color={colors.mint} /><Text style={[s.label, s.accent]}>{t('More')}</Text></Pressable>
+        <Pressable onPress={onExport} style={s.tool}><Ionicons name="share-outline" size={20} color={colors.mint} /><Text style={[s.label, s.accent]}>{t('Share')}</Text></Pressable>
       </ScrollView>
     </View>
   );

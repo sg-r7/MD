@@ -6,7 +6,7 @@ import { Screen } from '@/components/Screen';
 import { spacing } from '@/constants/theme';
 import { useTheme, type Palette } from '@/lib/theme';
 
-const themeLabel = { system: 'Follow device theme', light: 'Light', dark: 'Dark' } as const;
+const languages = ['system', 'en', 'ar'] as const;
 
 type SettingsStyles = ReturnType<typeof makeStyles>;
 type SettingsRowProps = { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; detail: string; right: React.ReactNode; onPress?: () => void; colors: Palette; styles: SettingsStyles };
@@ -24,27 +24,33 @@ function SettingsRow({ icon, title, detail, right, onPress, colors, styles }: Se
 
 export default function Settings() {
   const router = useRouter();
-  const { colors, settings, update, tap } = useTheme();
+  const { colors, settings, update, tap, t } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
+  const themeDetail = { system: t('Follow device theme'), light: t('Light'), dark: t('Dark') }[settings.theme];
+  const languageValue = settings.language === 'system' ? t('system') : settings.language === 'ar' ? 'العربية' : 'English';
   return (
     <Screen>
       <View style={s.header}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={s.back}><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
-        <View><Text style={s.kicker}>MD READER</Text><Text style={s.title}>Settings</Text></View>
+        <View><Text style={s.kicker}>{t('MD READER')}</Text><Text style={s.title}>{t('Settings')}</Text></View>
       </View>
       <View style={s.content}>
-        <Text style={s.label}>READER</Text>
-        <SettingsRow colors={colors} styles={s} icon="book-outline" title="Page direction" detail={settings.pageMode === 'vertical' ? 'Swipe up and down between pages' : 'Swipe left and right between pages'}
-          right={<Text style={s.value}>{settings.pageMode}</Text>} onPress={() => { tap(); update({ pageMode: settings.pageMode === 'vertical' ? 'horizontal' : 'vertical' }); }} />
-        <SettingsRow colors={colors} styles={s} icon="contrast-outline" title="Appearance" detail={themeLabel[settings.theme]}
-          right={<Text style={s.value}>{settings.theme}</Text>} onPress={() => { tap(); update({ theme: settings.theme === 'system' ? 'dark' : settings.theme === 'dark' ? 'light' : 'system' }); }} />
-        <Text style={[s.label, { marginTop: 28 }]}>PREFERENCES</Text>
-        <SettingsRow colors={colors} styles={s} icon="phone-portrait-outline" title="Haptic feedback" detail="Tactile feedback for tools and strokes"
+        <Text style={s.label}>{t('READER')}</Text>
+        <SettingsRow colors={colors} styles={s} icon="book-outline" title={t('Page direction')} detail={settings.pageMode === 'vertical' ? t('Swipe up and down between pages') : t('Swipe left and right between pages')}
+          right={<Text style={s.value}>{t(settings.pageMode)}</Text>} onPress={() => { tap(); update({ pageMode: settings.pageMode === 'vertical' ? 'horizontal' : 'vertical' }); }} />
+        <SettingsRow colors={colors} styles={s} icon="contrast-outline" title={t('Appearance')} detail={themeDetail}
+          right={<Text style={s.value}>{t(settings.theme)}</Text>} onPress={() => { tap(); update({ theme: settings.theme === 'system' ? 'dark' : settings.theme === 'dark' ? 'light' : 'system' }); }} />
+        <SettingsRow colors={colors} styles={s} icon="language-outline" title={t('Language')} detail={t('Follow device language')}
+          right={<Text style={s.value}>{languageValue}</Text>} onPress={() => { tap(); update({ language: languages[(languages.indexOf(settings.language) + 1) % languages.length]! }); }} />
+        <SettingsRow colors={colors} styles={s} icon="moon-outline" title={t('Night reading')} detail={t('Invert page colors for dark rooms (needs Android 12+ or iOS)')}
+          right={<Switch value={settings.nightMode} onValueChange={(v) => update({ nightMode: v })} trackColor={{ false: colors.line, true: colors.mint }} thumbColor={colors.white} />} />
+        <Text style={[s.label, { marginTop: 28 }]}>{t('PREFERENCES')}</Text>
+        <SettingsRow colors={colors} styles={s} icon="phone-portrait-outline" title={t('Haptic feedback')} detail={t('Tactile feedback for tools and strokes')}
           right={<Switch value={settings.haptics} onValueChange={(v) => update({ haptics: v })} trackColor={{ false: colors.line, true: colors.mint }} thumbColor={colors.white} />} />
         <View style={s.about}>
           <Text style={s.aboutTitle}>MD</Text>
-          <Text style={s.aboutText}>A focused workspace for reading, thinking, and making sense of complex documents.</Text>
-          <Text style={s.version}>Version 1.1.0 · Built with Expo</Text>
+          <Text style={s.aboutText}>{t('A focused workspace for reading, thinking, and making sense of complex documents.')}</Text>
+          <Text style={s.version}>{t('Version {v} · Built with Expo', { v: '1.2.0' })}</Text>
         </View>
       </View>
     </Screen>

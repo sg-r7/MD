@@ -8,7 +8,7 @@ import type { DocumentRecord } from '@/types';
 const formatSize = (bytes: number) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`);
 
 export function DocumentCard({ doc, onPress, onFavorite, onLongPress }: { doc: DocumentRecord; onPress: () => void; onFavorite: () => void; onLongPress: () => void }) {
-  const { colors } = useTheme();
+  const { colors, t } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
   const pct = Math.round(doc.progress * 100);
   return (
@@ -19,9 +19,9 @@ export function DocumentCard({ doc, onPress, onFavorite, onLongPress }: { doc: D
           <Text numberOfLines={2} style={s.name}>{doc.name}</Text>
           <Pressable onPress={onFavorite} hitSlop={12}><Ionicons name={doc.favorite ? 'heart' : 'heart-outline'} size={20} color={doc.favorite ? colors.amber : colors.muted} /></Pressable>
         </View>
-        <Text style={s.meta}>{doc.tags.length ? doc.tags.join(' · ') : doc.folder}  ·  {formatSize(doc.size)}</Text>
+        <Text style={s.meta}>{doc.tags.length ? doc.tags.map((tag) => t(tag)).join(' · ') : doc.folder}  ·  {formatSize(doc.size)}</Text>
         <View style={s.progress}><View style={[s.fill, { width: `${pct}%` }]} /></View>
-        <Text style={s.progressText}>{pct ? `${pct}% complete` : 'Not started'}</Text>
+        <Text style={s.progressText}>{pct ? t('{n}% complete', { n: pct }) : t('Not started')}</Text>
       </View>
     </Pressable>
   );

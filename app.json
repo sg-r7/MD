@@ -3,7 +3,7 @@
     "name": "MD",
     "slug": "md-pdf",
     "owner": "sgr7s-team",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "default",
     "scheme": "md",
     "userInterfaceStyle": "automatic",

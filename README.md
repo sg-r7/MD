@@ -36,6 +36,15 @@ Run checks with `pnpm typecheck` and `pnpm lint`.
 - `types/` defines document, stroke, sticky note, and settings contracts.
 - `constants/theme.ts` centralizes the visual system.
 
+## What's in 1.2
+
+- **Outline**: pages grid, bookmarks and a list of every sticky note, each tapping through to its page. Bookmark a page or jump to a page number from the More menu.
+- **Night reading** (setting + More menu) and **hide/show annotations**.
+- **Coloured sticky notes**, and **Export notes (Markdown)** that bundles the study note and all sticky notes by page.
+- **Language**: English / Arabic / follow device (text only; layout stays left-to-right so annotation coordinates are never mirrored).
+- **Lighter ink**: pen and marker strokes are simplified on save.
+- **Tests and CI**: `pnpm test` runs the geometry unit tests; `.github/workflows/ci.yml` runs tests, typecheck and lint on every push.
+
 ## What's in 1.1
 
 - **Annotation tools**: pen, marker, eraser (segment-accurate), shapes (rectangle, ellipse, arrow, line), ruler (15° snapping), lasso (select, move, duplicate, recolor, delete), sticky notes, stickers, images, 2x/3x zoom with pan, undo/redo.

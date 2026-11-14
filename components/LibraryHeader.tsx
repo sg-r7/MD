@@ -9,25 +9,25 @@ const tabs: Tag[] = ['All', 'Recent', 'Favorites', 'Study', 'Work'];
 type Props = { query: string; setQuery: (v: string) => void; filter: Tag; setFilter: (v: Tag) => void; sort: SortMode; onSort: () => void; onImport: () => void; onSettings: () => void };
 
 export function LibraryHeader({ query, setQuery, filter, setFilter, sort, onSort, onImport, onSettings }: Props) {
-  const { colors } = useTheme();
+  const { colors, t } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
   return (
     <>
       <View style={s.top}>
-        <View><Text style={s.kicker}>YOUR WORKSPACE</Text><Text style={s.title}>Library</Text></View>
+        <View><Text style={s.kicker}>{t('YOUR WORKSPACE')}</Text><Text style={s.title}>{t('Library')}</Text></View>
         <View style={s.actions}>
-          <Pressable style={s.icon} onPress={onImport} accessibilityLabel="Import PDF"><Ionicons name="add" size={23} color={colors.onLime} /></Pressable>
-          <Pressable style={s.iconDark} onPress={onSettings} accessibilityLabel="Settings"><Ionicons name="settings-outline" size={21} color={colors.mint} /></Pressable>
+          <Pressable style={s.icon} onPress={onImport} accessibilityLabel={t('Import PDF')}><Ionicons name="add" size={23} color={colors.onLime} /></Pressable>
+          <Pressable style={s.iconDark} onPress={onSettings} accessibilityLabel={t('Settings')}><Ionicons name="settings-outline" size={21} color={colors.mint} /></Pressable>
         </View>
       </View>
       <View style={s.search}>
         <Ionicons name="search" size={19} color={colors.muted} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search documents, tags..." placeholderTextColor={colors.muted} style={s.input} />
+        <TextInput value={query} onChangeText={setQuery} placeholder={t('Search documents, tags...')} placeholderTextColor={colors.muted} style={s.input} />
         {query ? <Pressable onPress={() => setQuery('')} hitSlop={10}><Ionicons name="close-circle" size={19} color={colors.muted} /></Pressable> : null}
-        <Pressable onPress={onSort} hitSlop={10} style={s.sort}><Ionicons name="swap-vertical-outline" size={17} color={colors.mint} /><Text style={s.sortText}>{sort}</Text></Pressable>
+        <Pressable onPress={onSort} hitSlop={10} style={s.sort}><Ionicons name="swap-vertical-outline" size={17} color={colors.mint} /><Text style={s.sortText}>{t(sort)}</Text></Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
-        {tabs.map((t) => <Pressable key={t} onPress={() => setFilter(t)} style={[s.tab, filter === t && s.active]}><Text style={[s.tabText, filter === t && s.activeText]}>{t}</Text></Pressable>)}
+        {tabs.map((tab) => <Pressable key={tab} onPress={() => setFilter(tab)} style={[s.tab, filter === tab && s.active]}><Text style={[s.tabText, filter === tab && s.activeText]}>{t(tab)}</Text></Pressable>)}
       </ScrollView>
     </>
   );

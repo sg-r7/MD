@@ -99,3 +99,21 @@ export function strokesBounds(list: Stroke[]) {
 
 export const translateStroke = (s: Stroke, dx: number, dy: number): Stroke => ({ ...s, points: s.points.map((p) => ({ x: clamp01(p.x + dx), y: clamp01(p.y + dy) })) });
 export const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Ramer–Douglas–Peucker. Drops redundant ink points so stored/rendered strokes stay small. */
+export function simplifyPoints(points: Point[], epsilon = 0.0012): Point[] {
+  if (points.length < 3) return points;
+  const keep = new Array<boolean>(points.length).fill(false);
+  keep[0] = true; keep[points.length - 1] = true;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [from, to] = stack.pop()!;
+    let far = 0; let at = -1;
+    for (let i = from + 1; i < to; i += 1) {
+      const d = distToSegment(points[i]!, points[from]!, points[to]!);
+      if (d > far) { far = d; at = i; }
+    }
+    if (at > -1 && far > epsilon) { keep[at] = true; stack.push([from, at], [at, to]); }
+  }
+  return points.filter((_, i) => keep[i]);
+}

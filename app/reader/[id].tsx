@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/refs, react-hooks/exhaustive-deps */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pdf from 'react-native-pdf';
@@ -15,7 +15,8 @@ import { PromptModal } from '@/components/PromptModal';
 import { ToolBar, type Tool } from '@/components/ToolBar';
 import { loadEditorNote, markdownPreview } from '@/lib/editorStorage';
 import { exportAnnotatedPdf } from '@/lib/exportPdf';
-import { strokeHit, strokeInside, translateStroke, uid } from '@/lib/geometry';
+import { exportNotesMarkdown } from '@/lib/exportNotes';
+import { simplifyPoints, strokeHit, strokeInside, translateStroke, uid } from '@/lib/geometry';
 import { emptyAnnotations, loadAnnotations, loadDocuments, patchDocument, saveAnnotations } from '@/lib/storage';
 import { useTheme, type Palette } from '@/lib/theme';
 import type { AnnotationState, DocumentRecord, Point } from '@/types';
@@ -25,6 +26,8 @@ const strokeSizes = [2, 4, 7, 11];
 const shapes: { id: ShapeKind; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
   { id: 'rect', icon: 'square-outline' }, { id: 'ellipse', icon: 'ellipse-outline' }, { id: 'arrow', icon: 'arrow-forward-outline' }, { id: 'line', icon: 'remove-outline' },
 ];
+const noteColors = ['#FDE68A', '#FCA5A5', '#86EFAC', '#93C5FD', '#D8B4FE'];
+const nightStyle = { filter: [{ invert: 1 }, { hueRotate: '180deg' }] } as unknown as ViewStyle;
 const stickers = ['⭐', '❤️', '👍', '✅', '❓', '❗', '💡', '📌', '🔥', '✔️', '❌', '🎯', '⚠️', '😀', '🤔', '📝'];
 const drawingTools: Tool[] = ['pen', 'highlight', 'eraser', 'shape', 'ruler', 'lasso'];
 const NONE: string[] = [];
@@ -34,7 +37,7 @@ export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, settings, tap } = useTheme();
+  const { colors, settings, update, tap, t } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [doc, setDoc] = useState<DocumentRecord>();
@@ -61,7 +64,11 @@ export default function Reader() {
   const [showMore, setShowMore] = useState(false);
   const [showPages, setShowPages] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
-  const [noteDraft, setNoteDraft] = useState<{ id?: string; text: string } | null>(null);
+  const [noteDraft, setNoteDraft] = useState<{ id?: string; text: string; color?: string } | null>(null);
+  const [bookmarks, setBookmarks] = useState<number[]>([]);
+  const [outlineTab, setOutlineTab] = useState<'pages' | 'bookmarks' | 'notes'>('pages');
+  const [showGoTo, setShowGoTo] = useState(false);
+  const [hideAnn, setHideAnn] = useState(false);
   const [itemSel, setItemSel] = useState<{ kind: ItemKind; id: string } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -79,7 +86,7 @@ export default function Reader() {
       const found = docs.find((d) => d.id === id);
       if (!found) { setMissing(true); return; }
       initialPage.current = found.lastPage ?? 1; pageRef.current = initialPage.current;
-      setPage(initialPage.current); setPageCount(found.pages ?? 1);
+      setPage(initialPage.current); setPageCount(found.pages ?? 1); setBookmarks(found.bookmarks ?? []);
       annRef.current = saved; setAnn(saved); loadedRef.current = true; setDoc(found);
     })();
     return () => { on = false; };
@@ -121,7 +128,11 @@ export default function Reader() {
   const pageNotes = useMemo(() => ann.notes.filter((n) => n.page === page), [ann.notes, page]);
   const pageImages = useMemo(() => ann.images.filter((i) => i.page === page), [ann.images, page]);
 
-  const onStroke = (draft: DraftStroke) => { commit((s) => ({ ...s, strokes: [...s.strokes, { ...draft, id: uid(), page }] })); tap(); };
+  const onStroke = (draft: DraftStroke) => {
+    const points = draft.tool === 'pen' || draft.tool === 'highlight' ? simplifyPoints(draft.points) : draft.points;
+    commit((s) => ({ ...s, strokes: [...s.strokes, { ...draft, points, id: uid(), page }] }));
+    tap();
+  };
   const onErase = (points: Point[]) => {
     const { width, height } = sizeRef.current;
     const hit = annRef.current.strokes.filter((s) => s.page === page && strokeHit(s, points, width, height, 12)).map((s) => s.id);
@@ -143,11 +154,11 @@ export default function Reader() {
 
   /* ---------- notes, stickers, images ---------- */
   const centerX = (px: number) => Math.max(0.02, 0.5 - px / 2 / Math.max(sizeRef.current.width, 1));
-  const saveNote = (text: string) => {
+  const saveNote = (text: string, noteColor?: string) => {
     const clean = text.trim();
     if (!clean) return;
-    if (noteDraft?.id) commit((s) => ({ ...s, notes: s.notes.map((n) => (n.id === noteDraft.id ? { ...n, text: clean } : n)) }));
-    else commit((s) => ({ ...s, notes: [...s.notes, { id: uid(), page, x: centerX(150), y: 0.3, text: clean, color: '#FDE68A', kind: 'note' }] }));
+    if (noteDraft?.id) commit((s) => ({ ...s, notes: s.notes.map((n) => (n.id === noteDraft.id ? { ...n, text: clean, color: noteColor ?? n.color } : n)) }));
+    else commit((s) => ({ ...s, notes: [...s.notes, { id: uid(), page, x: centerX(150), y: 0.3, text: clean, color: noteColor ?? noteColors[0]!, kind: 'note' }] }));
     tap();
   };
   const addSticker = (emoji: string) => { commit((s) => ({ ...s, notes: [...s.notes, { id: uid(), page, x: centerX(44), y: 0.4, text: emoji, color: 'transparent', kind: 'sticker', size: 44 }] })); tap(); };
@@ -163,7 +174,7 @@ export default function Reader() {
       const aspect = await new Promise<number>((resolve) => Image.getSize(dest, (w, h) => resolve(h ? w / h : 1), () => resolve(1)));
       commit((s) => ({ ...s, images: [...s.images, { id: uid(), page, x: centerX(size.width * 0.4), y: 0.25, w: 0.4, aspect, uri: dest }] }));
       tap();
-    } catch (error) { Alert.alert('Image failed', error instanceof Error ? error.message : 'The image could not be added.'); }
+    } catch (error) { Alert.alert(t('Image failed'), error instanceof Error ? error.message : t('The image could not be added.')); }
   };
   const moveItem = (kind: ItemKind, itemId: string, x: number, y: number) =>
     commit((s) => (kind === 'image' ? { ...s, images: s.images.map((i) => (i.id === itemId ? { ...i, x, y } : i)) } : { ...s, notes: s.notes.map((n) => (n.id === itemId ? { ...n, x, y } : n)) }));
@@ -207,49 +218,73 @@ export default function Reader() {
   /* ---------- sharing ---------- */
   const share = async (annotated: boolean) => {
     if (!doc) return;
-    if (!(await Sharing.isAvailableAsync())) { Alert.alert('Sharing unavailable', 'Sharing is not supported on this device.'); return; }
+    if (!(await Sharing.isAvailableAsync())) { Alert.alert(t('Sharing unavailable'), t('Sharing is not supported on this device.')); return; }
     const a = annRef.current;
     const has = a.strokes.length > 0 || a.images.length > 0 || a.notes.some((n) => n.kind !== 'sticker');
     try {
       if (annotated && has) {
         setExporting(true);
         const path = await exportAnnotatedPdf(doc, a);
-        await Sharing.shareAsync(path, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Share annotated document' });
-      } else await Sharing.shareAsync(doc.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Share document' });
-    } catch (error) { Alert.alert('Export failed', error instanceof Error ? error.message : 'The document could not be exported.'); } finally { setExporting(false); }
+        await Sharing.shareAsync(path, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: t('Share annotated PDF') });
+      } else await Sharing.shareAsync(doc.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: t('Share original') });
+    } catch (error) { Alert.alert(t('Export failed'), error instanceof Error ? error.message : t('The document could not be exported.')); } finally { setExporting(false); }
   };
 
+  const toggleBookmark = () => {
+    const next = bookmarks.includes(page) ? bookmarks.filter((b) => b !== page) : [...bookmarks, page].sort((a, b) => a - b);
+    setBookmarks(next); tap();
+    void patchDocument(id, { bookmarks: next });
+  };
+  const submitGoTo = (value: string) => {
+    const n = parseInt(value, 10);
+    if (Number.isFinite(n)) goToPage(clampN(n, 1, Math.max(pageCount, 1)));
+  };
+  const shareNotes = async () => {
+    if (!doc) return;
+    try {
+      const note = await loadEditorNote(`workspace-${id}`, id);
+      const path = await exportNotesMarkdown(doc, note?.markdown ?? '', annRef.current, t);
+      if (!path) { Alert.alert(t('Export failed'), t('Nothing to export yet.')); return; }
+      if (!(await Sharing.isAvailableAsync())) { Alert.alert(t('Sharing unavailable'), t('Sharing is not supported on this device.')); return; }
+      await Sharing.shareAsync(path, { mimeType: 'text/markdown', UTI: 'net.daringfireball.markdown', dialogTitle: t('Export notes (Markdown)') });
+    } catch (error) { Alert.alert(t('Export failed'), error instanceof Error ? error.message : t('The document could not be exported.')); }
+  };
   const goToPage = (n: number) => { pdfRef.current?.setPage(n); setSelected([]); setPage(n); pageRef.current = n; };
   const mountPage = useMemo(() => pageRef.current, [settings.pageMode, doc?.id]);
 
-  if (missing) return <View style={styles.loading}><Text style={styles.loadingText}>This document is no longer in your library.</Text><Pressable onPress={() => router.back()} style={styles.backLink}><Text style={styles.backLinkText}>Go back</Text></Pressable></View>;
-  if (!doc) return <View style={styles.loading}><ActivityIndicator color={colors.mint} /><Text style={[styles.loadingText, { marginTop: 10 }]}>Opening document…</Text></View>;
+  if (missing) return <View style={styles.loading}><Text style={styles.loadingText}>{t('This document is no longer in your library.')}</Text><Pressable onPress={() => router.back()} style={styles.backLink}><Text style={styles.backLinkText}>{t('Go back')}</Text></Pressable></View>;
+  if (!doc) return <View style={styles.loading}><ActivityIndicator color={colors.mint} /><Text style={[styles.loadingText, { marginTop: 10 }]}>{t('Opening document…')}</Text></View>;
 
   const canvasTool: CanvasTool = drawingTools.includes(tool) ? (tool as CanvasTool) : 'select';
   const showOptions = tool === 'pen' || tool === 'highlight' || tool === 'shape' || tool === 'ruler';
   const hasPageContent = pageStrokes.length + pageNotes.length + pageImages.length > 0;
 
   const moreActions: SheetAction[] = [
-    { icon: 'share-outline', label: 'Share annotated PDF', onPress: () => void share(true) },
-    { icon: 'document-outline', label: 'Share original', onPress: () => void share(false) },
-    { icon: 'create-outline', label: 'Study notes', onPress: () => router.push({ pathname: '/editor', params: { documentId: id } }) },
-    { icon: 'trash-outline', label: 'Clear this page', danger: true, onPress: () => setConfirmClear(true) },
-    { icon: 'settings-outline', label: 'Reader settings', onPress: () => router.push('/settings') },
+    { icon: bookmarks.includes(page) ? 'bookmark' : 'bookmark-outline', label: bookmarks.includes(page) ? t('Remove bookmark') : t('Bookmark this page'), onPress: toggleBookmark },
+    { icon: 'navigate-outline', label: t('Go to page'), onPress: () => setShowGoTo(true) },
+    { icon: hideAnn ? 'eye-outline' : 'eye-off-outline', label: hideAnn ? t('Show annotations') : t('Hide annotations'), onPress: () => setHideAnn((v) => !v) },
+    { icon: 'moon-outline', label: settings.nightMode ? t('Night reading: on') : t('Night reading: off'), onPress: () => update({ nightMode: !settings.nightMode }) },
+    { icon: 'share-outline', label: t('Share annotated PDF'), onPress: () => void share(true) },
+    { icon: 'document-outline', label: t('Share original'), onPress: () => void share(false) },
+    { icon: 'download-outline', label: t('Export notes (Markdown)'), onPress: () => void shareNotes() },
+    { icon: 'create-outline', label: t('Study notes'), onPress: () => router.push({ pathname: '/editor', params: { documentId: id } }) },
+    { icon: 'trash-outline', label: t('Clear this page'), danger: true, onPress: () => setConfirmClear(true) },
+    { icon: 'settings-outline', label: t('Reader settings'), onPress: () => router.push('/settings') },
   ];
   const itemActions: SheetAction[] = [
-    ...(selectedNote && selectedNote.kind !== 'sticker' ? [{ icon: 'create-outline' as const, label: 'Edit text', onPress: () => setNoteDraft({ id: selectedNote.id, text: selectedNote.text }) }] : []),
+    ...(selectedNote && selectedNote.kind !== 'sticker' ? [{ icon: 'create-outline' as const, label: t('Edit text'), onPress: () => setNoteDraft({ id: selectedNote.id, text: selectedNote.text, color: selectedNote.color }) }] : []),
     ...(selectedNote?.kind === 'note' ? [] : [
-      { icon: 'add-circle-outline' as const, label: 'Bigger', onPress: () => resizeItem(1.25) },
-      { icon: 'remove-circle-outline' as const, label: 'Smaller', onPress: () => resizeItem(0.8) },
+      { icon: 'add-circle-outline' as const, label: t('Bigger'), onPress: () => resizeItem(1.25) },
+      { icon: 'remove-circle-outline' as const, label: t('Smaller'), onPress: () => resizeItem(0.8) },
     ]),
-    { icon: 'trash-outline', label: 'Delete', danger: true, onPress: deleteItem },
+    { icon: 'trash-outline', label: t('Delete'), danger: true, onPress: deleteItem },
   ];
 
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
-        <View style={styles.heading}><Text numberOfLines={1} style={styles.title}>{doc.name}</Text><Text style={styles.subtitle}>MD workspace  ·  {page}/{pageCount}</Text></View>
+        <View style={styles.heading}><Text numberOfLines={1} style={styles.title}>{doc.name}</Text><Text style={styles.subtitle}>{t('MD workspace')}  ·  {page}/{pageCount}{bookmarks.includes(page) ? '  ★' : ''}</Text></View>
         <Pressable onPress={() => setShowPages(true)} style={styles.headerButton}><Ionicons name="grid-outline" size={21} color={colors.mint} /></Pressable>
         <Pressable onPress={() => setShowMore(true)} style={styles.headerButton}><Ionicons name="ellipsis-vertical" size={21} color={colors.mint} /></Pressable>
       </View>
@@ -258,10 +293,10 @@ export default function Reader() {
         <View style={styles.options}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionsContent}>
             {tool === 'shape' && <>{shapes.map((sh) => <Pressable key={sh.id} onPress={() => setShapeKind(sh.id)} style={[styles.sizeButton, shapeKind === sh.id && styles.selectedSize]}><Ionicons name={sh.icon} size={18} color={shapeKind === sh.id ? colors.mint : colors.muted} /></Pressable>)}<View style={styles.optionDivider} /></>}
-            <Text style={styles.optionTitle}>Color</Text>
+            <Text style={styles.optionTitle}>{t('Color')}</Text>
             {inkColors.map((item) => <Pressable key={item} onPress={() => setColor(item)} style={[styles.color, { backgroundColor: item }, color === item && styles.selectedColor]} />)}
             <View style={styles.optionDivider} />
-            <Text style={styles.optionTitle}>Size</Text>
+            <Text style={styles.optionTitle}>{t('Size')}</Text>
             {strokeSizes.map((item) => <Pressable key={item} onPress={() => setStrokeWidth(item)} style={[styles.sizeButton, strokeWidth === item && styles.selectedSize]}><View style={[styles.dot, { width: item + 3, height: item + 3, backgroundColor: color }]} /></Pressable>)}
           </ScrollView>
         </View>
@@ -269,16 +304,18 @@ export default function Reader() {
 
       <View style={styles.viewer} onLayout={(e) => { const { width, height } = e.nativeEvent.layout; sizeRef.current = { width, height }; setSize({ width, height }); }}>
         <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: zoom }] }]}>
+          <View style={[StyleSheet.absoluteFill, settings.nightMode ? nightStyle : null]}>
           <Pdf
             key={settings.pageMode} ref={pdfRef} source={{ uri: doc.uri }} style={StyleSheet.absoluteFill}
             horizontal={settings.pageMode === 'horizontal'} enablePaging fitPolicy={2} spacing={0} minScale={1} maxScale={1} enableDoubleTapZoom={false} page={mountPage}
             onLoadComplete={(n) => { setPageCount(n); setPdfReady(true); }}
             onPageChanged={(p, n) => { setSelected([]); setPage(p); pageRef.current = p; if (n) setPageCount(n); }}
-            onError={() => Alert.alert('PDF error', 'This document could not be rendered on this device.')}
+            onError={() => Alert.alert(t('PDF error'), t('This document could not be rendered on this device.'))}
           />
-          <DrawingCanvas strokes={pageStrokes} width={size.width} height={size.height} tool={canvasTool} shapeKind={shapeKind} color={color} strokeWidth={strokeWidth}
-            selectedIds={tool === 'lasso' ? selected : NONE} onStroke={onStroke} onErase={onErase} onLasso={onLasso} onMoveSelection={onMoveSelection} />
-          <PageItems notes={pageNotes} images={pageImages} width={size.width} height={size.height} zoom={zoom} interactive={tool === 'select'} onMove={moveItem} onPress={(kind, itemId) => setItemSel({ kind, id: itemId })} />
+          </View>
+          {!hideAnn && <DrawingCanvas strokes={pageStrokes} width={size.width} height={size.height} tool={canvasTool} shapeKind={shapeKind} color={color} strokeWidth={strokeWidth}
+            selectedIds={tool === 'lasso' ? selected : NONE} onStroke={onStroke} onErase={onErase} onLasso={onLasso} onMoveSelection={onMoveSelection} />}
+          {!hideAnn && <PageItems notes={pageNotes} images={pageImages} width={size.width} height={size.height} zoom={zoom} interactive={tool === 'select'} onMove={moveItem} onPress={(kind, itemId) => setItemSel({ kind, id: itemId })} />}
         </View>
         {tool === 'magnifier' && zoom > 1 && <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers} />}
 
@@ -292,25 +329,27 @@ export default function Reader() {
           </View>
         )}
         {savedNote ? <Pressable style={styles.notePreview} onPress={() => router.push({ pathname: '/editor', params: { documentId: id } })}><Ionicons name="document-text-outline" size={16} color={colors.mint} /><Text numberOfLines={2} style={styles.notePreviewText}>{savedNote}</Text></Pressable> : null}
-        {exporting && <View style={styles.exporting}><ActivityIndicator color={colors.mint} /><Text style={styles.exportingText}>Preparing annotated PDF…</Text></View>}
+        {exporting && <View style={styles.exporting}><ActivityIndicator color={colors.mint} /><Text style={styles.exportingText}>{t('Preparing annotated PDF…')}</Text></View>}
       </View>
 
       <ToolBar tool={tool} setTool={chooseTool} zoom={zoom} canUndo={past.current.length > 0} canRedo={future.current.length > 0} onUndo={undo} onRedo={redo} onExport={() => void share(true)} onMore={() => setShowMore(true)} />
 
-      <ActionSheet visible={showMore} title="Document tools" actions={moreActions} onClose={() => setShowMore(false)} />
-      <ActionSheet visible={!!itemSel && !noteDraft} title={selectedNote ? (selectedNote.kind === 'sticker' ? 'Sticker' : 'Note') : 'Image'} actions={itemActions} onClose={() => setItemSel(null)} />
-      <ActionSheet visible={confirmClear} title={hasPageContent ? `Remove everything on page ${page}?` : 'Nothing to clear on this page'} onClose={() => setConfirmClear(false)}
+      <ActionSheet visible={showMore} title={t('Document tools')} actions={moreActions} onClose={() => setShowMore(false)} />
+      <ActionSheet visible={!!itemSel && !noteDraft} title={selectedNote ? (selectedNote.kind === 'sticker' ? t('Sticker') : t('Note')) : t('Image')} actions={itemActions} onClose={() => setItemSel(null)} />
+      <ActionSheet visible={confirmClear} title={hasPageContent ? t('Remove everything on page {n}?', { n: page }) : t('Nothing to clear on this page')} onClose={() => setConfirmClear(false)}
         actions={hasPageContent ? [
-          { icon: 'trash', label: 'Clear page', danger: true, onPress: () => commit((s) => ({ ...s, strokes: s.strokes.filter((x) => x.page !== page), notes: s.notes.filter((x) => x.page !== page), images: s.images.filter((x) => x.page !== page) })) },
-          { icon: 'close', label: 'Cancel', onPress: () => {} },
-        ] : [{ icon: 'close', label: 'OK', onPress: () => {} }]} />
-      <PromptModal visible={!!noteDraft} title={noteDraft?.id ? 'Edit note' : 'New sticky note'} initial={noteDraft?.text ?? ''} placeholder="Write a note…" multiline
-        onSubmit={saveNote} onClose={() => { setNoteDraft(null); setItemSel(null); }} />
+          { icon: 'trash', label: t('Clear page'), danger: true, onPress: () => commit((s) => ({ ...s, strokes: s.strokes.filter((x) => x.page !== page), notes: s.notes.filter((x) => x.page !== page), images: s.images.filter((x) => x.page !== page) })) },
+          { icon: 'close', label: t('Cancel'), onPress: () => {} },
+        ] : [{ icon: 'close', label: t('OK'), onPress: () => {} }]} />
+      <PromptModal visible={!!noteDraft} title={noteDraft?.id ? t('Edit note') : t('New sticky note')} initial={noteDraft?.text ?? ''} placeholder={t('Write a note…')} multiline
+        palette={noteColors} initialColor={noteDraft?.color} onSubmit={saveNote} onClose={() => { setNoteDraft(null); setItemSel(null); }} />
+      <PromptModal visible={showGoTo} title={t('Go to page (1–{n})', { n: pageCount })} initial={String(page)} submitLabel="Go" keyboardType="number-pad"
+        onSubmit={submitGoTo} onClose={() => setShowGoTo(false)} />
 
       <Modal visible={showStickers} transparent animationType="slide" onRequestClose={() => setShowStickers(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowStickers(false)}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-            <View style={styles.handle} /><Text style={styles.sheetTitle}>Stickers</Text>
+            <View style={styles.handle} /><Text style={styles.sheetTitle}>{t('Stickers')}</Text>
             <View style={styles.stickerGrid}>{stickers.map((e) => <Pressable key={e} style={styles.stickerCell} onPress={() => { setShowStickers(false); addSticker(e); }}><Text style={styles.stickerText}>{e}</Text></Pressable>)}</View>
           </View>
         </Pressable>
@@ -319,19 +358,49 @@ export default function Reader() {
       <Modal visible={showPages} transparent animationType="slide" onRequestClose={() => setShowPages(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowPages(false)}>
           <View style={styles.pageSheet} onStartShouldSetResponder={() => true}>
-            <View style={styles.handle} /><Text style={styles.sheetTitle}>Pages</Text>
-            <ScrollView contentContainerStyle={styles.pageGrid}>
-              {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => {
-                const marks = ann.strokes.some((s) => s.page === n) || ann.notes.some((x) => x.page === n) || ann.images.some((x) => x.page === n);
-                return (
-                  <Pressable key={n} onPress={() => { setShowPages(false); goToPage(n); }} style={[styles.pageTile, n === page && styles.activePageTile]}>
-                    <Ionicons name="document-text-outline" size={25} color={n === page ? colors.onMint : colors.muted} />
-                    <Text style={[styles.pageNumber, n === page && styles.activePageNumber]}>{n}</Text>
-                    {marks && <View style={styles.markDot} />}
+            <View style={styles.handle} /><Text style={styles.sheetTitle}>{t('Outline')}</Text>
+            <View style={styles.outlineTabs}>
+              {(['pages', 'bookmarks', 'notes'] as const).map((tab) => (
+                <Pressable key={tab} onPress={() => setOutlineTab(tab)} style={[styles.outlineTab, outlineTab === tab && styles.outlineTabOn]}>
+                  <Text style={[styles.outlineTabText, outlineTab === tab && styles.outlineTabTextOn]}>{t(tab === 'pages' ? 'Pages' : tab === 'bookmarks' ? 'Bookmarks' : 'Notes')}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {outlineTab === 'pages' && (
+              <ScrollView contentContainerStyle={styles.pageGrid}>
+                {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => {
+                  const marks = ann.strokes.some((x) => x.page === n) || ann.notes.some((x) => x.page === n) || ann.images.some((x) => x.page === n);
+                  return (
+                    <Pressable key={n} onPress={() => { setShowPages(false); goToPage(n); }} style={[styles.pageTile, n === page && styles.activePageTile]}>
+                      <Ionicons name={bookmarks.includes(n) ? 'bookmark' : 'document-text-outline'} size={25} color={n === page ? colors.onMint : bookmarks.includes(n) ? colors.amber : colors.muted} />
+                      <Text style={[styles.pageNumber, n === page && styles.activePageNumber]}>{n}</Text>
+                      {marks && <View style={styles.markDot} />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+            {outlineTab === 'bookmarks' && (
+              <ScrollView>
+                {bookmarks.length === 0 && <Text style={styles.emptyText}>{t('No bookmarks yet. Add one from the More menu.')}</Text>}
+                {bookmarks.map((n) => (
+                  <Pressable key={n} onPress={() => { setShowPages(false); goToPage(n); }} style={styles.listRow}>
+                    <Ionicons name="bookmark" size={18} color={colors.amber} /><Text style={styles.listText}>{t('Page {n}', { n })}</Text>
                   </Pressable>
-                );
-              })}
-            </ScrollView>
+                ))}
+              </ScrollView>
+            )}
+            {outlineTab === 'notes' && (
+              <ScrollView>
+                {ann.notes.filter((n) => n.kind !== 'sticker').length === 0 && <Text style={styles.emptyText}>{t('No notes yet.')}</Text>}
+                {[...ann.notes].filter((n) => n.kind !== 'sticker').sort((x, y) => x.page - y.page).map((n) => (
+                  <Pressable key={n.id} onPress={() => { setShowPages(false); goToPage(n.page); }} style={styles.listRow}>
+                    <View style={[styles.noteChip, { backgroundColor: n.color }]} />
+                    <View style={styles.listCopy}><Text style={styles.listMeta}>{t('Page {n}', { n: n.page })}</Text><Text numberOfLines={2} style={styles.listText}>{n.text}</Text></View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
           </View>
         </Pressable>
       </Modal>
@@ -381,5 +450,16 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   activePageTile: { backgroundColor: c.mint },
   pageNumber: { color: c.muted, fontWeight: '800' },
   activePageNumber: { color: c.onMint },
+  outlineTabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  outlineTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, backgroundColor: c.panelAlt },
+  outlineTabOn: { backgroundColor: c.mint },
+  outlineTabText: { color: c.muted, fontWeight: '700', fontSize: 12 },
+  outlineTabTextOn: { color: c.onMint },
+  emptyText: { color: c.muted, textAlign: 'center', marginTop: 30, lineHeight: 21 },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.line },
+  listCopy: { flex: 1 },
+  listMeta: { color: c.muted, fontSize: 11, fontWeight: '700' },
+  listText: { color: c.ink, fontSize: 14, flex: 1 },
+  noteChip: { width: 14, height: 36, borderRadius: 4 },
   markDot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: c.amber },
 });

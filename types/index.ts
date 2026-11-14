@@ -4,7 +4,7 @@ export type Point = { x: number; y: number };
 
 export type DocumentRecord = {
   id: string; name: string; uri: string; size: number; createdAt: string; updatedAt: string;
-  lastOpenedAt?: string; pages?: number; lastPage?: number;
+  lastOpenedAt?: string; pages?: number; lastPage?: number; bookmarks?: number[];
   favorite: boolean; tags: string[]; folder: string; progress: number; accent: string;
 };
 
@@ -14,4 +14,4 @@ export type Stroke = { id: string; page: number; color: string; width: number; o
 export type StickyNote = { id: string; page: number; x: number; y: number; text: string; color: string; kind?: 'note' | 'sticker'; size?: number };
 export type ImageItem = { id: string; page: number; x: number; y: number; w: number; aspect: number; uri: string };
 export type AnnotationState = { strokes: Stroke[]; notes: StickyNote[]; images: ImageItem[]; view?: { width: number; height: number } };
-export type AppSettings = { theme: 'system' | 'light' | 'dark'; pageMode: 'vertical' | 'horizontal'; haptics: boolean };
+export type AppSettings = { theme: 'system' | 'light' | 'dark'; pageMode: 'vertical' | 'horizontal'; haptics: boolean; language: 'system' | 'en' | 'ar'; nightMode: boolean };

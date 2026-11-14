@@ -10,7 +10,7 @@ import { useTheme, type Palette } from '@/lib/theme';
 export default function EditorScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, t } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { documentId } = useLocalSearchParams<{ documentId?: string }>();
   const editorRef = useRef<MilkdownEditorHandle>(null);
@@ -71,19 +71,19 @@ export default function EditorScreen() {
     editorRef.current?.requestSave();
   };
 
-  if (initialMarkdown === undefined) return <View style={styles.center}><ActivityIndicator color={colors.mint} /><Text style={styles.loading}>Loading note…</Text></View>;
+  if (initialMarkdown === undefined) return <View style={styles.center}><ActivityIndicator color={colors.mint} /><Text style={styles.loading}>{t('Loading note…')}</Text></View>;
 
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={finish} style={styles.button} accessibilityLabel="Save and go back"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
-        <View style={styles.copy}><Text style={styles.kicker}>MD WORKSPACE</Text><Text style={styles.title}>Note editor</Text></View>
+        <View style={styles.copy}><Text style={styles.kicker}>{t('MD WORKSPACE')}</Text><Text style={styles.title}>{t('Note editor')}</Text></View>
         <Pressable disabled={!ready || saving} onPress={saveOnly} style={[styles.save, (!ready || saving) && styles.disabled, saved && styles.saved]}>
-          <Ionicons name={saved ? 'checkmark' : 'save-outline'} size={18} color={colors.onLime} /><Text style={styles.saveText}>{saving ? 'Saving…' : saved ? 'Saved' : 'Save'}</Text>
+          <Ionicons name={saved ? 'checkmark' : 'save-outline'} size={18} color={colors.onLime} /><Text style={styles.saveText}>{saving ? t('Saving…') : saved ? t('Saved') : t('Save')}</Text>
         </Pressable>
       </View>
-      <MilkdownEditor ref={editorRef} initialMarkdown={initialMarkdown} placeholder="Write your study notes…" onChange={(value) => { setMarkdown(value); setSaved(false); }} onReady={() => setReady(true)} onSave={handleSaved} />
-      {markdownPreview(markdown) ? <View style={[styles.status, { bottom: insets.bottom + 10 }]}><Text numberOfLines={1} style={styles.statusText}>{saved ? 'Saved' : 'Draft'} · {markdownPreview(markdown)}</Text></View> : null}
+      <MilkdownEditor ref={editorRef} initialMarkdown={initialMarkdown} placeholder={t('Write your study notes…')} onChange={(value) => { setMarkdown(value); setSaved(false); }} onReady={() => setReady(true)} onSave={handleSaved} />
+      {markdownPreview(markdown) ? <View style={[styles.status, { bottom: insets.bottom + 10 }]}><Text numberOfLines={1} style={styles.statusText}>{saved ? t('Saved') : t('Draft')} · {markdownPreview(markdown)}</Text></View> : null}
     </View>
   );
 }
