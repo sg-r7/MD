@@ -11,12 +11,7 @@ export function PromptModal({ visible, title, initial = '', placeholder, multili
   const { colors, t } = useTheme();
   const [value, setValue] = useState(initial);
   const [picked, setPicked] = useState(initialColor ?? palette?.[0]);
-  const defaultColor = initialColor ?? palette?.[0];
-  useEffect(() => {
-    if (!visible) return undefined;
-    const timer = setTimeout(() => { setValue(initial); setPicked(defaultColor); }, 0);
-    return () => clearTimeout(timer);
-  }, [visible, initial, defaultColor]);
+  useEffect(() => { if (visible) { setValue(initial); setPicked(initialColor ?? palette?.[0]); } }, [visible, initial, initialColor]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.backdrop}>

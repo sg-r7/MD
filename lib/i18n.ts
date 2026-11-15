@@ -42,6 +42,7 @@ const ar: Record<string, string> = {
   'PDF error': 'خطأ في PDF', 'This document could not be rendered on this device.': 'تعذّر عرض هذا المستند على هذا الجهاز.',
   'Sharing unavailable': 'المشاركة غير متاحة', 'Sharing is not supported on this device.': 'هذا الجهاز لا يدعم المشاركة.',
   'Export failed': 'فشل التصدير', 'The document could not be exported.': 'تعذّر تصدير المستند.', 'Image failed': 'فشلت إضافة الصورة', 'The image could not be added.': 'تعذّر إضافة الصورة.',
+  'Importing…': 'جارٍ الاستيراد…', 'The file is not a valid PDF.': 'هذا الملف ليس PDF صالحاً.',
   'Preparing annotated PDF…': 'جارٍ تجهيز PDF مع التعليقات…', 'Nothing to export yet.': 'لا يوجد شيء لتصديره بعد.',
 };
 

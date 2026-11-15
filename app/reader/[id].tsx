@@ -73,7 +73,7 @@ export default function Reader() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savedNote, setSavedNote] = useState<string>();
-  const pdfRef = useRef<React.ComponentRef<typeof Pdf>>(null);
+  const pdfRef = useRef<Pdf>(null);
   const pageRef = useRef(1);
   const initialPage = useRef(1);
 
@@ -113,6 +113,8 @@ export default function Reader() {
     if (id) loadEditorNote(`workspace-${id}`, id).then((note) => { if (active) setSavedNote(note ? markdownPreview(note.markdown) || undefined : undefined); });
     return () => { active = false; };
   }, [id]));
+
+  useEffect(() => { setSelected([]); }, [page, tool]);
 
   /* ---------- annotation state with undo/redo ---------- */
   const commit = (fn: (s: AnnotationState) => AnnotationState) => {
@@ -207,7 +209,6 @@ export default function Reader() {
 
   const chooseTool = (next: Tool) => {
     tap();
-    setSelected([]);
     if (next === 'magnifier') { const z = zoom === 1 ? 2 : zoom === 2 ? 3 : 1; setZoomLevel(z); setTool(z === 1 ? 'select' : 'magnifier'); return; }
     if (next === 'text') { setNoteDraft({ text: '' }); setTool('select'); return; }
     if (next === 'sticker') { setShowStickers(true); setTool('select'); return; }
@@ -249,7 +250,7 @@ export default function Reader() {
       await Sharing.shareAsync(path, { mimeType: 'text/markdown', UTI: 'net.daringfireball.markdown', dialogTitle: t('Export notes (Markdown)') });
     } catch (error) { Alert.alert(t('Export failed'), error instanceof Error ? error.message : t('The document could not be exported.')); }
   };
-  const goToPage = (n: number) => { pdfRef.current?.setPage(n); setSelected([]); setPage(n); pageRef.current = n; };
+  const goToPage = (n: number) => { pdfRef.current?.setPage(n); setPage(n); pageRef.current = n; };
   const mountPage = useMemo(() => pageRef.current, [settings.pageMode, doc?.id]);
 
   if (missing) return <View style={styles.loading}><Text style={styles.loadingText}>{t('This document is no longer in your library.')}</Text><Pressable onPress={() => router.back()} style={styles.backLink}><Text style={styles.backLinkText}>{t('Go back')}</Text></Pressable></View>;
@@ -309,7 +310,7 @@ export default function Reader() {
             key={settings.pageMode} ref={pdfRef} source={{ uri: doc.uri }} style={StyleSheet.absoluteFill}
             horizontal={settings.pageMode === 'horizontal'} enablePaging fitPolicy={2} spacing={0} minScale={1} maxScale={1} enableDoubleTapZoom={false} page={mountPage}
             onLoadComplete={(n) => { setPageCount(n); setPdfReady(true); }}
-            onPageChanged={(p, n) => { setSelected([]); setPage(p); pageRef.current = p; if (n) setPageCount(n); }}
+            onPageChanged={(p, n) => { setPage(p); pageRef.current = p; if (n) setPageCount(n); }}
             onError={() => Alert.alert(t('PDF error'), t('This document could not be rendered on this device.'))}
           />
           </View>
@@ -435,7 +436,7 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   selBtn: { width: 40, height: 36, alignItems: 'center', justifyContent: 'center' },
   notePreview: { position: 'absolute', left: 12, right: 12, bottom: 48, padding: 10, borderRadius: 13, backgroundColor: c.panel, borderWidth: 1, borderColor: c.line, flexDirection: 'row', alignItems: 'center', gap: 8 },
   notePreviewText: { color: c.ink, fontSize: 12, flex: 1 },
-  exporting: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,.45)', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  exporting: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,.45)', alignItems: 'center', justifyContent: 'center', gap: 10 },
   exportingText: { color: '#fff', fontWeight: '700' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,.48)' },
   sheet: { backgroundColor: c.panel, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22, paddingBottom: 35 },

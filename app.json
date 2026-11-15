@@ -20,7 +20,19 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.md.reader"
+      "bundleIdentifier": "com.md.reader",
+      "infoPlist": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "PDF Document",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf"
+            ]
+          }
+        ],
+        "LSSupportsOpeningDocumentsInPlace": false
+      }
     },
     "android": {
       "package": "com.md.reader",
@@ -34,6 +46,20 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.INTERNET"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
+          "data": [
+            {
+              "mimeType": "application/pdf"
+            }
+          ]
+        }
       ]
     },
     "web": {
