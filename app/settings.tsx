@@ -8,20 +8,26 @@ import { useTheme, type Palette } from '@/lib/theme';
 
 const languages = ['system', 'en', 'ar'] as const;
 
+type SettingsStyles = ReturnType<typeof makeStyles>;
+type SettingsRowProps = { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; detail: string; right: React.ReactNode; onPress?: () => void; colors: Palette; styles: SettingsStyles };
+
+function SettingsRow({ icon, title, detail, right, onPress, colors, styles }: SettingsRowProps) {
+  return (
+    <Pressable onPress={onPress} style={styles.row}>
+      <View style={styles.rowIcon}><Ionicons name={icon} size={19} color={colors.mint} /></View>
+      <View style={styles.rowCopy}><Text style={styles.rowTitle}>{title}</Text><Text style={styles.rowDetail}>{detail}</Text></View>
+      {right}
+      {onPress ? <Ionicons name="chevron-forward" size={17} color={colors.muted} /> : null}
+    </Pressable>
+  );
+}
+
 export default function Settings() {
   const router = useRouter();
   const { colors, settings, update, tap, t } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
   const themeDetail = { system: t('Follow device theme'), light: t('Light'), dark: t('Dark') }[settings.theme];
   const languageValue = settings.language === 'system' ? t('system') : settings.language === 'ar' ? 'العربية' : 'English';
-  const Row = ({ icon, title, detail, right, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; detail: string; right: React.ReactNode; onPress?: () => void }) => (
-    <Pressable onPress={onPress} style={s.row}>
-      <View style={s.rowIcon}><Ionicons name={icon} size={19} color={colors.mint} /></View>
-      <View style={s.rowCopy}><Text style={s.rowTitle}>{title}</Text><Text style={s.rowDetail}>{detail}</Text></View>
-      {right}
-      {onPress ? <Ionicons name="chevron-forward" size={17} color={colors.muted} /> : null}
-    </Pressable>
-  );
   return (
     <Screen>
       <View style={s.header}>
@@ -30,16 +36,16 @@ export default function Settings() {
       </View>
       <View style={s.content}>
         <Text style={s.label}>{t('READER')}</Text>
-        <Row icon="book-outline" title={t('Page direction')} detail={settings.pageMode === 'vertical' ? t('Swipe up and down between pages') : t('Swipe left and right between pages')}
+        <SettingsRow colors={colors} styles={s} icon="book-outline" title={t('Page direction')} detail={settings.pageMode === 'vertical' ? t('Swipe up and down between pages') : t('Swipe left and right between pages')}
           right={<Text style={s.value}>{t(settings.pageMode)}</Text>} onPress={() => { tap(); update({ pageMode: settings.pageMode === 'vertical' ? 'horizontal' : 'vertical' }); }} />
-        <Row icon="contrast-outline" title={t('Appearance')} detail={themeDetail}
+        <SettingsRow colors={colors} styles={s} icon="contrast-outline" title={t('Appearance')} detail={themeDetail}
           right={<Text style={s.value}>{t(settings.theme)}</Text>} onPress={() => { tap(); update({ theme: settings.theme === 'system' ? 'dark' : settings.theme === 'dark' ? 'light' : 'system' }); }} />
-        <Row icon="language-outline" title={t('Language')} detail={t('Follow device language')}
+        <SettingsRow colors={colors} styles={s} icon="language-outline" title={t('Language')} detail={t('Follow device language')}
           right={<Text style={s.value}>{languageValue}</Text>} onPress={() => { tap(); update({ language: languages[(languages.indexOf(settings.language) + 1) % languages.length]! }); }} />
-        <Row icon="moon-outline" title={t('Night reading')} detail={t('Invert page colors for dark rooms (needs Android 12+ or iOS)')}
+        <SettingsRow colors={colors} styles={s} icon="moon-outline" title={t('Night reading')} detail={t('Invert page colors for dark rooms (needs Android 12+ or iOS)')}
           right={<Switch value={settings.nightMode} onValueChange={(v) => update({ nightMode: v })} trackColor={{ false: colors.line, true: colors.mint }} thumbColor={colors.white} />} />
         <Text style={[s.label, { marginTop: 28 }]}>{t('PREFERENCES')}</Text>
-        <Row icon="phone-portrait-outline" title={t('Haptic feedback')} detail={t('Tactile feedback for tools and strokes')}
+        <SettingsRow colors={colors} styles={s} icon="phone-portrait-outline" title={t('Haptic feedback')} detail={t('Tactile feedback for tools and strokes')}
           right={<Switch value={settings.haptics} onValueChange={(v) => update({ haptics: v })} trackColor={{ false: colors.line, true: colors.mint }} thumbColor={colors.white} />} />
         <View style={s.about}>
           <Text style={s.aboutTitle}>MD</Text>

@@ -13,5 +13,6 @@ export type StrokeTool = 'pen' | 'highlight' | 'line' | 'arrow' | 'rect' | 'elli
 export type Stroke = { id: string; page: number; color: string; width: number; opacity: number; points: Point[]; tool: StrokeTool };
 export type StickyNote = { id: string; page: number; x: number; y: number; text: string; color: string; kind?: 'note' | 'sticker'; size?: number };
 export type ImageItem = { id: string; page: number; x: number; y: number; w: number; aspect: number; uri: string };
-export type AnnotationState = { strokes: Stroke[]; notes: StickyNote[]; images: ImageItem[]; view?: { width: number; height: number } };
+/** version 2: coordinates are fractions of the page (0..1); stroke width is in units of 1/600 of the page width. */
+export type AnnotationState = { strokes: Stroke[]; notes: StickyNote[]; images: ImageItem[]; version?: number; view?: { width: number; height: number } };
 export type AppSettings = { theme: 'system' | 'light' | 'dark'; pageMode: 'vertical' | 'horizontal'; haptics: boolean; language: 'system' | 'en' | 'ar'; nightMode: boolean };

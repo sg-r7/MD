@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { LineCapStyle, PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PAGE_UNITS } from '@/lib/annotations';
 import { strokePathD } from '@/lib/geometry';
 import type { AnnotationState, DocumentRecord } from '@/types';
 
@@ -13,11 +14,9 @@ const encodable = (text: string) => text.replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '\u
 
 /**
  * Flattens strokes, shapes, notes and images into a copy of the PDF.
- * Assumes the reader shows each page fitted and centred in the viewport (fitPolicy BOTH, paging on).
+ * Annotations are stored as fractions of their page, so they map straight onto the page in PDF points.
  */
 export async function exportAnnotatedPdf(doc: DocumentRecord, ann: AnnotationState): Promise<string> {
-  const view = ann.view;
-  if (!view || view.width < 1 || view.height < 1) throw new Error('Open the document and annotate it before exporting.');
   const base64 = await FileSystem.readAsStringAsync(doc.uri, { encoding: FileSystem.EncodingType.Base64 });
   const pdf = await PDFDocument.load(base64);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -32,14 +31,13 @@ export async function exportAnnotatedPdf(doc: DocumentRecord, ann: AnnotationSta
 
     const page = pages[index]!;
     const { width: pw, height: ph } = page.getSize();
-    const s = Math.min(view.width / pw, view.height / ph);
-    const ox = (view.width - pw * s) / 2; const oy = (view.height - ph * s) / 2;
-    const top = (p: { x: number; y: number }) => ({ x: (p.x * view.width - ox) / s, y: (p.y * view.height - oy) / s });
+    const unit = pw / PAGE_UNITS; // PDF points per stroke unit
+    const top = (p: { x: number; y: number }) => ({ x: p.x * pw, y: p.y * ph }); // from the page's top-left
 
     for (const stroke of strokes) {
-      const d = strokePathD(stroke, top, 1 / s);
+      const d = strokePathD(stroke, top, unit);
       if (!d) continue;
-      page.drawSvgPath(d, { x: 0, y: ph, borderColor: hexToRgb(stroke.color), borderWidth: stroke.width / s, borderOpacity: stroke.opacity, borderLineCap: LineCapStyle.Round });
+      page.drawSvgPath(d, { x: 0, y: ph, borderColor: hexToRgb(stroke.color), borderWidth: stroke.width * unit, borderOpacity: stroke.opacity, borderLineCap: LineCapStyle.Round });
     }
 
     for (const item of images) {
@@ -47,7 +45,7 @@ export async function exportAnnotatedPdf(doc: DocumentRecord, ann: AnnotationSta
       try {
         const data = await FileSystem.readAsStringAsync(item.uri, { encoding: FileSystem.EncodingType.Base64 });
         const img = ext === 'png' ? await pdf.embedPng(data) : await pdf.embedJpg(data);
-        const w = (item.w * view.width) / s; const h = w / item.aspect; const p = top({ x: item.x, y: item.y });
+        const w = item.w * pw; const h = w / item.aspect; const p = top(item);
         page.drawImage(img, { x: p.x, y: ph - p.y - h, width: w, height: h });
       } catch { /* unsupported image type (e.g. WebP/HEIC): skipped */ }
     }
@@ -55,7 +53,7 @@ export async function exportAnnotatedPdf(doc: DocumentRecord, ann: AnnotationSta
     for (const note of notes) {
       const text = encodable(note.text);
       const unreadable = (text.match(/\u0001/g)?.length ?? 0) > text.length * 0.3;
-      const fontSize = 11 / s; const boxW = 150 / s; const pad = 8 / s;
+      const boxW = pw * 0.42; const pad = pw * 0.028; const fontSize = pw * 0.036; const leading = pw * 0.05;
       const lines: string[] = [];
       if (!unreadable) {
         text.split('\n').forEach((para) => {
@@ -67,11 +65,11 @@ export async function exportAnnotatedPdf(doc: DocumentRecord, ann: AnnotationSta
           lines.push(line);
         });
       }
-      const shown = unreadable ? ['[note - see app]'] : lines.slice(0, 10).map((l) => l.replace(/\u0001/g, '?'));
-      const boxH = pad * 2 + shown.length * fontSize * 1.25;
-      const p = top({ x: note.x, y: note.y });
-      page.drawRectangle({ x: p.x, y: ph - p.y - boxH, width: boxW, height: boxH, color: hexToRgb(note.color), borderColor: rgb(0.8, 0.65, 0.1), borderWidth: 0.6 / s });
-      shown.forEach((line, i) => page.drawText(line, { x: p.x + pad, y: ph - p.y - pad - fontSize * (1 + i * 1.25), size: fontSize, font, color: rgb(0.23, 0.18, 0.04) }));
+      const shown = unreadable ? ['[note - see app]'] : lines.slice(0, 9).map((l) => l.replace(/\u0001/g, '?'));
+      const boxH = pad * 2 + shown.length * leading;
+      const p = top(note);
+      page.drawRectangle({ x: p.x, y: ph - p.y - boxH, width: boxW, height: boxH, color: hexToRgb(note.color), borderColor: rgb(0.8, 0.65, 0.1), borderWidth: 0.6 });
+      shown.forEach((line, i) => page.drawText(line, { x: p.x + pad, y: ph - p.y - pad - fontSize - i * leading, size: fontSize, font, color: rgb(0.23, 0.18, 0.04) }));
     }
   }
 
