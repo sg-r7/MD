@@ -7,7 +7,7 @@ const read = async <T>(key: string, fallback: T): Promise<T> => {
 };
 
 export const defaultSettings: AppSettings = { theme: 'system', pageMode: 'vertical', haptics: true, language: 'system', nightMode: false };
-export const emptyAnnotations = (): AnnotationState => ({ strokes: [], notes: [], images: [] });
+export const emptyAnnotations = (): AnnotationState => ({ strokes: [], notes: [], images: [], version: 2 });
 
 export const loadDocuments = () => read<DocumentRecord[]>(KEYS.docs, []);
 export const saveDocuments = (value: DocumentRecord[]) => AsyncStorage.setItem(KEYS.docs, JSON.stringify(value));
@@ -21,7 +21,7 @@ export async function patchDocument(id: string, patch: Partial<DocumentRecord>) 
 
 export async function loadAnnotations(id: string): Promise<AnnotationState> {
   const raw = await read<Partial<AnnotationState>>(`${KEYS.annotations}.${id}`, {});
-  return { strokes: raw.strokes ?? [], notes: raw.notes ?? [], images: raw.images ?? [], view: raw.view };
+  return { strokes: raw.strokes ?? [], notes: raw.notes ?? [], images: raw.images ?? [], version: raw.version, view: raw.view };
 }
 export const saveAnnotations = (id: string, value: AnnotationState) => AsyncStorage.setItem(`${KEYS.annotations}.${id}`, JSON.stringify(value));
 export const removeAnnotations = (id: string) => AsyncStorage.removeItem(`${KEYS.annotations}.${id}`);
