@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shadow } from '@/constants/theme';
 import { useTheme, type Palette } from '@/lib/theme';
@@ -7,13 +7,17 @@ import type { DocumentRecord } from '@/types';
 
 const formatSize = (bytes: number) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`);
 
-export function DocumentCard({ doc, onPress, onFavorite, onLongPress }: { doc: DocumentRecord; onPress: () => void; onFavorite: () => void; onLongPress: () => void }) {
+export function DocumentCard({ doc, cover, folderColor, onPress, onFavorite, onLongPress }: { doc: DocumentRecord; cover?: string; folderColor?: string; onPress: () => void; onFavorite: () => void; onLongPress: () => void }) {
   const { colors, t } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
   const pct = Math.round(doc.progress * 100);
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} style={({ pressed }) => [s.card, pressed && s.pressed]}>
-      <View style={[s.cover, { backgroundColor: doc.accent }]}><Text style={s.coverText}>PDF</Text><View style={s.page}><Text style={s.pageText}>{doc.pages ? `${doc.pages}p` : 'MD'}</Text></View></View>
+      <View style={[s.cover, { backgroundColor: doc.accent }]}>
+        {cover ? <Image source={{ uri: cover }} style={s.coverImage} resizeMode="cover" /> : null}
+        <Text style={s.coverText}>{doc.kind === 'notebook' ? 'NOTE' : 'PDF'}</Text><View style={s.page}><Text style={s.pageText}>{doc.pages ? `${doc.pages}p` : 'MD'}</Text></View>
+        {folderColor ? <View style={[s.folderDot, { backgroundColor: folderColor }]} /> : null}
+      </View>
       <View style={s.info}>
         <View style={s.row}>
           <Text numberOfLines={2} style={s.name}>{doc.name}</Text>
@@ -31,6 +35,8 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   card: { backgroundColor: c.panel, borderColor: c.line, borderWidth: 1, borderRadius: 20, padding: 12, flexDirection: 'row', gap: 14, marginBottom: 12, ...shadow },
   pressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
   cover: { width: 72, height: 92, borderRadius: 12, padding: 8, justifyContent: 'space-between' },
+  coverImage: { ...StyleSheet.absoluteFill, borderRadius: 12 },
+  folderDot: { position: 'absolute', top: -4, left: -4, width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: c.panel },
   coverText: { fontWeight: '900', fontSize: 12, color: '#0E1715' },
   page: { backgroundColor: 'rgba(255,255,255,.75)', alignSelf: 'flex-end', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
   pageText: { fontSize: 10, fontWeight: '800', color: '#0E1715' },

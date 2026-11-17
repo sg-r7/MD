@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { AnnotationState, AppSettings, DocumentRecord } from '@/types';
+import type { AnnotationState, AppSettings, DocumentRecord, Folder } from '@/types';
 
-const KEYS = { docs: 'md.documents.v1', annotations: 'md.annotations.v1', settings: 'md.settings.v1' };
+const KEYS = { folders: 'md.folders.v1', docs: 'md.documents.v1', annotations: 'md.annotations.v1', settings: 'md.settings.v1' };
 const read = async <T>(key: string, fallback: T): Promise<T> => {
   try { const raw = await AsyncStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : fallback; } catch { return fallback; }
 };
@@ -28,3 +28,6 @@ export const removeAnnotations = (id: string) => AsyncStorage.removeItem(`${KEYS
 
 export const loadSettings = async () => ({ ...defaultSettings, ...(await read<Partial<AppSettings>>(KEYS.settings, {})) });
 export const saveSettings = (value: AppSettings) => AsyncStorage.setItem(KEYS.settings, JSON.stringify(value));
+
+export const loadFolders = () => read<Folder[]>(KEYS.folders, []);
+export const saveFolders = (value: Folder[]) => AsyncStorage.setItem(KEYS.folders, JSON.stringify(value));

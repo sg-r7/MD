@@ -1,10 +1,14 @@
 export type Tag = 'All' | 'Recent' | 'Favorites' | 'Work' | 'Study';
+export type Template = 'blank' | 'ruled' | 'grid' | 'dots';
+export type Folder = { id: string; name: string; color: string };
 export type SortMode = 'date' | 'name' | 'size';
 export type Point = { x: number; y: number };
 
 export type DocumentRecord = {
   id: string; name: string; uri: string; size: number; createdAt: string; updatedAt: string;
   lastOpenedAt?: string; pages?: number; lastPage?: number; bookmarks?: number[];
+  /** 'notebook' = a blank-paper PDF created in the app; `template` is the paper used for pages added later. */
+  kind?: 'pdf' | 'notebook'; template?: Template; folderId?: string;
   favorite: boolean; tags: string[]; folder: string; progress: number; accent: string;
 };
 

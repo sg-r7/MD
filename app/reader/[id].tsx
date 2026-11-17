@@ -1,9 +1,9 @@
 /* eslint-disable react-hooks/refs, react-hooks/exhaustive-deps */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PdfPageOverlay, PdfView, type PdfViewRef } from 'react-native-better-pdf';
+import { PdfPageOverlay, PdfView, type PdfOutlineItem, type PdfSearchChangeEvent, type PdfViewRef } from 'react-native-better-pdf';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -11,13 +11,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { ActionSheet, type SheetAction } from '@/components/ActionSheet';
 import type { CanvasTool, DraftStroke, ShapeKind } from '@/components/DrawingCanvas';
 import { PageLayer } from '@/components/PageLayer';
+import { PageManager } from '@/components/PageManager';
 import { STICKER_SIZE, type ItemKind } from '@/components/PageItems';
 import { PromptModal } from '@/components/PromptModal';
 import { ToolBar, type Tool } from '@/components/ToolBar';
 import { loadEditorNote, markdownPreview } from '@/lib/editorStorage';
 import { migrateToPageSpace, PAGE_UNITS } from '@/lib/annotations';
 import { exportAnnotatedPdf } from '@/lib/exportPdf';
+import { applyPlan } from '@/lib/applyPlan';
 import { exportNotesMarkdown } from '@/lib/exportNotes';
+import { initialPlan, insertBlank } from '@/lib/pagePlan';
 import { simplifyPoints, strokeHit, strokeInside, translateStroke, uid } from '@/lib/geometry';
 import { emptyAnnotations, loadAnnotations, loadDocuments, patchDocument, saveAnnotations } from '@/lib/storage';
 import { useTheme, type Palette } from '@/lib/theme';
@@ -32,6 +35,8 @@ const noteColors = ['#FDE68A', '#FCA5A5', '#86EFAC', '#93C5FD', '#D8B4FE'];
 const stickers = ['⭐', '❤️', '👍', '✅', '❓', '❗', '💡', '📌', '🔥', '✔️', '❌', '🎯', '⚠️', '😀', '🤔', '📝'];
 const drawingTools: Tool[] = ['pen', 'highlight', 'eraser', 'shape', 'ruler', 'lasso'];
 const NONE: string[] = [];
+const flattenOutline = (items: PdfOutlineItem[], depth = 0): { title: string; page?: number; depth: number }[] =>
+  items.flatMap((i) => [{ title: i.title, page: i.page, depth }, ...flattenOutline(i.children ?? [], depth + 1)]);
 const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export default function Reader() {
@@ -66,7 +71,15 @@ export default function Reader() {
   const [showStickers, setShowStickers] = useState(false);
   const [noteDraft, setNoteDraft] = useState<{ id?: string; text: string; color?: string } | null>(null);
   const [bookmarks, setBookmarks] = useState<number[]>([]);
-  const [outlineTab, setOutlineTab] = useState<'pages' | 'bookmarks' | 'notes'>('pages');
+  const [outlineTab, setOutlineTab] = useState<'pages' | 'bookmarks' | 'notes' | 'contents'>('pages');
+  const [outline, setOutline] = useState<PdfOutlineItem[]>([]);
+  const [showManager, setShowManager] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchState, setSearchState] = useState<PdfSearchChangeEvent>();
+  const [selectedText, setSelectedText] = useState('');
+  const [recentDocs, setRecentDocs] = useState<DocumentRecord[]>([]);
+  const [busyText, setBusyText] = useState('');
   const [showGoTo, setShowGoTo] = useState(false);
   const [hideAnn, setHideAnn] = useState(false);
   const [itemSel, setItemSel] = useState<{ kind: ItemKind; id: string } | null>(null);
@@ -88,6 +101,7 @@ export default function Reader() {
       initialPage.current = found.lastPage ?? 1; pageRef.current = initialPage.current;
       setPage(initialPage.current); setVisible({ first: initialPage.current, last: initialPage.current }); setPageCount(found.pages ?? 1); setBookmarks(found.bookmarks ?? []);
       annRef.current = saved; setAnn(saved); loadedRef.current = true; setDoc(found);
+      setRecentDocs([...docs].filter((d) => d.lastOpenedAt || d.id === found.id).sort((a, b) => (b.lastOpenedAt ?? '9').localeCompare(a.lastOpenedAt ?? '9')).slice(0, 5));
     })();
     return () => { on = false; };
   }, [id]);
@@ -113,6 +127,11 @@ export default function Reader() {
     if (id) loadEditorNote(`workspace-${id}`, id).then((note) => { if (active) setSavedNote(note ? markdownPreview(note.markdown) || undefined : undefined); });
     return () => { active = false; };
   }, [id]));
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSelected([]), 0);
+    return () => clearTimeout(timer);
+  }, [tool]);
 
   // Annotations saved by older versions were relative to the screen; convert them once the page sizes are known.
   useEffect(() => {
@@ -200,7 +219,6 @@ export default function Reader() {
   /* ---------- zoom (native pinch / double tap in the viewer; the Zoom tool cycles presets) ---------- */
   const chooseTool = (next: Tool) => {
     tap();
-    setSelected([]);
     if (next === 'magnifier') { pdfRef.current?.zoomTo(scale < 1.5 ? 2 : scale < 2.5 ? 3 : 1); return; }
     if (next === 'text') { setNoteDraft({ text: '' }); setTool('select'); return; }
     if (next === 'sticker') { setShowStickers(true); setTool('select'); return; }
@@ -242,8 +260,28 @@ export default function Reader() {
       await Sharing.shareAsync(path, { mimeType: 'text/markdown', UTI: 'net.daringfireball.markdown', dialogTitle: t('Export notes (Markdown)') });
     } catch (error) { Alert.alert(t('Export failed'), error instanceof Error ? error.message : t('The document could not be exported.')); }
   };
+  const openLink = (url: string) => {
+    if (!/^(https?:|mailto:|tel:)/i.test(url)) return;
+    Alert.alert(t('Open this link?'), url, [{ text: t('Cancel'), style: 'cancel' }, { text: t('Open'), onPress: () => void Linking.openURL(url).catch(() => {}) }]);
+  };
+  const runSearch = (q = searchText) => { const clean = q.trim(); if (clean) pdfRef.current?.search(clean); else pdfRef.current?.clearSearch(); };
+  const closeSearch = () => { setSearchOpen(false); setSearchState(undefined); pdfRef.current?.clearSearch(); };
+  const onApplied = (next: DocumentRecord, nextAnn: AnnotationState) => {
+    annRef.current = nextAnn; setAnn(nextAnn); past.current = []; future.current = [];
+    const p = Math.max(1, Math.min(pageRef.current, next.pages ?? 1)); pageRef.current = p; setPage(p);
+    setBookmarks(next.bookmarks ?? []); setPageCount(next.pages ?? 1); setPageSizes([]); setOutline([]); setPdfReady(false); setDoc(next);
+  };
+  const addBlankPage = async () => {
+    if (!doc || pageSizes.length === 0) return;
+    setBusyText(t('Rebuilding document…')); setExporting(true);
+    try {
+      const result = await applyPlan(doc, insertBlank(initialPlan(pageSizes), []), annRef.current);
+      pageRef.current = result.doc.pages ?? pageRef.current;
+      onApplied(result.doc, result.ann);
+    } catch (error) { Alert.alert(t('Could not apply changes'), error instanceof Error ? error.message : t('The document could not be exported.')); } finally { setExporting(false); setBusyText(''); }
+  };
   const goToPage = (n: number) => { pdfRef.current?.goToPage(n - 1); setPage(n); pageRef.current = n; };
-  const mountPage = useMemo(() => Math.max(0, pageRef.current - 1), [settings.pageMode, doc?.id]);
+  const mountPage = useMemo(() => Math.max(0, pageRef.current - 1), [settings.pageMode, doc?.id, doc?.uri]);
 
   // Pages that get a drawing layer: those on screen (plus a margin) and those that already hold annotations.
   const overlayPages = useMemo(() => {
@@ -267,6 +305,8 @@ export default function Reader() {
     { icon: 'moon-outline', label: settings.nightMode ? t('Night reading: on') : t('Night reading: off'), onPress: () => update({ nightMode: !settings.nightMode }) },
     { icon: 'share-outline', label: t('Share annotated PDF'), onPress: () => void share(true) },
     { icon: 'document-outline', label: t('Share original'), onPress: () => void share(false) },
+    { icon: 'copy-outline', label: t('Manage pages'), onPress: () => setShowManager(true) },
+    ...(doc.kind === 'notebook' ? [{ icon: 'add-circle-outline' as const, label: t('Add page'), onPress: () => void addBlankPage() }] : []),
     { icon: 'download-outline', label: t('Export notes (Markdown)'), onPress: () => void shareNotes() },
     { icon: 'create-outline', label: t('Study notes'), onPress: () => router.push({ pathname: '/editor', params: { documentId: id } }) },
     { icon: 'trash-outline', label: t('Clear this page'), danger: true, onPress: () => setConfirmClear(true) },
@@ -286,9 +326,31 @@ export default function Reader() {
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
         <View style={styles.heading}><Text numberOfLines={1} style={styles.title}>{doc.name}</Text><Text style={styles.subtitle}>{t('MD workspace')}  ·  {page}/{pageCount}{bookmarks.includes(page) ? '  ★' : ''}</Text></View>
+        <Pressable onPress={() => setSearchOpen((v) => !v)} style={styles.headerButton}><Ionicons name="search" size={21} color={colors.mint} /></Pressable>
         <Pressable onPress={() => setShowPages(true)} style={styles.headerButton}><Ionicons name="grid-outline" size={21} color={colors.mint} /></Pressable>
         <Pressable onPress={() => setShowMore(true)} style={styles.headerButton}><Ionicons name="ellipsis-vertical" size={21} color={colors.mint} /></Pressable>
       </View>
+
+      {recentDocs.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsBar} contentContainerStyle={styles.tabsContent}>
+          {recentDocs.map((d) => (
+            <Pressable key={d.id} onPress={() => { if (d.id !== id) router.replace(`/reader/${d.id}`); }} style={[styles.docTab, d.id === id && styles.docTabOn]}>
+              <Text numberOfLines={1} style={[styles.docTabText, d.id === id && styles.docTabTextOn]}>{d.name.replace(/\.pdf$/i, '')}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+      {searchOpen && (
+        <View style={styles.searchBar}>
+          <TextInput autoFocus value={searchText} onChangeText={setSearchText} onSubmitEditing={() => runSearch()} returnKeyType="search" placeholder={t('Search in document')} placeholderTextColor={colors.muted} style={styles.searchInput} />
+          <Text style={styles.searchCount}>
+            {searchState?.isSupported === false ? t('Search needs Android 15 or newer.') : searchState && searchState.query ? (searchState.matchCount ? `${(searchState.currentMatch ?? 0) + 1}/${searchState.matchCount}${searchState.isComplete ? '' : '…'}` : searchState.isComplete ? t('No matches') : '…') : ''}
+          </Text>
+          <Pressable onPress={() => pdfRef.current?.searchPrevious()} hitSlop={8} style={styles.searchBtn}><Ionicons name="chevron-up" size={20} color={colors.mint} /></Pressable>
+          <Pressable onPress={() => pdfRef.current?.searchNext()} hitSlop={8} style={styles.searchBtn}><Ionicons name="chevron-down" size={20} color={colors.mint} /></Pressable>
+          <Pressable onPress={closeSearch} hitSlop={8} style={styles.searchBtn}><Ionicons name="close" size={20} color={colors.muted} /></Pressable>
+        </View>
+      )}
 
       {showOptions && (
         <View style={styles.options}>
@@ -305,10 +367,12 @@ export default function Reader() {
 
       <View style={[styles.viewer, settings.nightMode && styles.viewerNight]} onLayout={(e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         <PdfView
-          key={`${settings.pageMode}-${mountPage}`} ref={pdfRef} style={StyleSheet.absoluteFill} source={{ uri: doc.uri }}
+          key={`${doc.uri}-${settings.pageMode}-${mountPage}`} ref={pdfRef} style={StyleSheet.absoluteFill} source={{ uri: doc.uri }}
           horizontal={settings.pageMode === 'horizontal'} fitPolicy="width" minScale={1} maxScale={5} pageSpacing={8} initialPage={mountPage}
           colorScheme={settings.nightMode ? 'dark' : 'light'}
-          onLoad={({ pageCount: n }) => { setPageCount(n); setPdfReady(true); pdfRef.current?.getPageSizes().then(setPageSizes).catch(() => {}); }}
+          enableTextSelection={tool === 'select'} onTextSelectionChange={({ text }) => setSelectedText(text)}
+          onLinkPress={({ url }) => openLink(url)} onSearchChange={setSearchState}
+          onLoad={({ pageCount: n }) => { setPageCount(n); setPdfReady(true); pdfRef.current?.getPageSizes().then(setPageSizes).catch(() => {}); pdfRef.current?.getOutline().then(setOutline).catch(() => {}); }}
           onPageChange={({ page: p, pageCount: n }) => { setPage(p + 1); pageRef.current = p + 1; setPageCount(n); }}
           onViewportChange={({ firstVisiblePage, lastVisiblePage }) => setVisible({ first: firstVisiblePage + 1, last: lastVisiblePage + 1 })}
           onScaleChange={({ scale: z }) => setScale(z)}
@@ -331,6 +395,12 @@ export default function Reader() {
         </PdfView>
 
         <View pointerEvents="none" style={styles.pageBadge}><Text style={styles.pageBadgeText}>{page} / {pageCount}{scale > 1.02 ? `  ·  ${Math.round(scale * 10) / 10}x` : ''}</Text></View>
+        {tool === 'select' && selectedText.length > 0 && (
+          <View style={styles.selectionBar}>
+            <Pressable style={styles.selChip} onPress={() => void Share.share({ message: selectedText })}><Ionicons name="share-outline" size={16} color={colors.mint} /><Text style={styles.selChipText}>{t('Share text')}</Text></Pressable>
+            <Pressable style={styles.selChip} onPress={() => { setSearchText(selectedText); setSearchOpen(true); runSearch(selectedText); }}><Ionicons name="search" size={16} color={colors.mint} /><Text style={styles.selChipText}>{t('Search this text')}</Text></Pressable>
+          </View>
+        )}
         {tool === 'lasso' && selected.length > 0 && (
           <View style={styles.selectionBar}>
             <Pressable style={styles.selBtn} onPress={deleteSelection}><Ionicons name="trash-outline" size={18} color={colors.danger} /></Pressable>
@@ -340,7 +410,7 @@ export default function Reader() {
           </View>
         )}
         {savedNote ? <Pressable style={styles.notePreview} onPress={() => router.push({ pathname: '/editor', params: { documentId: id } })}><Ionicons name="document-text-outline" size={16} color={colors.mint} /><Text numberOfLines={2} style={styles.notePreviewText}>{savedNote}</Text></Pressable> : null}
-        {exporting && <View style={styles.exporting}><ActivityIndicator color={colors.mint} /><Text style={styles.exportingText}>{t('Preparing annotated PDF…')}</Text></View>}
+        {exporting && <View style={styles.exporting}><ActivityIndicator color={colors.mint} /><Text style={styles.exportingText}>{busyText || t('Preparing annotated PDF…')}</Text></View>}
       </View>
 
       <ToolBar tool={tool} setTool={chooseTool} zoom={scale} canUndo={past.current.length > 0} canRedo={future.current.length > 0} onUndo={undo} onRedo={redo} onExport={() => void share(true)} onMore={() => setShowMore(true)} />
@@ -357,6 +427,8 @@ export default function Reader() {
       <PromptModal visible={showGoTo} title={t('Go to page (1–{n})', { n: pageCount })} initial={String(page)} submitLabel="Go" keyboardType="number-pad"
         onSubmit={submitGoTo} onClose={() => setShowGoTo(false)} />
 
+      <PageManager visible={showManager} doc={doc} annotations={ann} onClose={() => setShowManager(false)} onApplied={onApplied} />
+
       <Modal visible={showStickers} transparent animationType="slide" onRequestClose={() => setShowStickers(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowStickers(false)}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
@@ -371,9 +443,9 @@ export default function Reader() {
           <View style={styles.pageSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.handle} /><Text style={styles.sheetTitle}>{t('Outline')}</Text>
             <View style={styles.outlineTabs}>
-              {(['pages', 'bookmarks', 'notes'] as const).map((tab) => (
+              {(['pages', 'contents', 'bookmarks', 'notes'] as const).map((tab) => (
                 <Pressable key={tab} onPress={() => setOutlineTab(tab)} style={[styles.outlineTab, outlineTab === tab && styles.outlineTabOn]}>
-                  <Text style={[styles.outlineTabText, outlineTab === tab && styles.outlineTabTextOn]}>{t(tab === 'pages' ? 'Pages' : tab === 'bookmarks' ? 'Bookmarks' : 'Notes')}</Text>
+                  <Text style={[styles.outlineTabText, outlineTab === tab && styles.outlineTabTextOn]}>{t(tab === 'pages' ? 'Pages' : tab === 'contents' ? 'Contents' : tab === 'bookmarks' ? 'Bookmarks' : 'Notes')}</Text>
                 </Pressable>
               ))}
             </View>
@@ -389,6 +461,17 @@ export default function Reader() {
                     </Pressable>
                   );
                 })}
+              </ScrollView>
+            )}
+            {outlineTab === 'contents' && (
+              <ScrollView>
+                {outline.length === 0 && <Text style={styles.emptyText}>{t('No contents in this document.')}</Text>}
+                {flattenOutline(outline).map((item, i) => (
+                  <Pressable key={`${i}-${item.title}`} disabled={item.page === undefined} onPress={() => { setShowPages(false); if (item.page !== undefined) goToPage(item.page + 1); }} style={[styles.listRow, { paddingLeft: item.depth * 16 }]}>
+                    <Text numberOfLines={2} style={[styles.listText, item.page === undefined && { color: colors.muted }]}>{item.title}</Text>
+                    {item.page !== undefined && <Text style={styles.listMeta}>{item.page + 1}</Text>}
+                  </Pressable>
+                ))}
               </ScrollView>
             )}
             {outlineTab === 'bookmarks' && (
@@ -462,6 +545,18 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   activePageTile: { backgroundColor: c.mint },
   pageNumber: { color: c.muted, fontWeight: '800' },
   activePageNumber: { color: c.onMint },
+  tabsBar: { maxHeight: 40, borderBottomWidth: 1, borderBottomColor: c.line },
+  tabsContent: { paddingHorizontal: 10, paddingVertical: 6, gap: 6, alignItems: 'center' },
+  docTab: { maxWidth: 150, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14, backgroundColor: c.panel },
+  docTabOn: { backgroundColor: c.mint },
+  docTabText: { color: c.muted, fontSize: 12, fontWeight: '700' },
+  docTabTextOn: { color: c.onMint },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.panel, borderBottomWidth: 1, borderBottomColor: c.line },
+  searchInput: { flex: 1, color: c.ink, fontSize: 14, paddingVertical: 6 },
+  searchCount: { color: c.muted, fontSize: 11, maxWidth: 110 },
+  searchBtn: { padding: 4 },
+  selChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 36 },
+  selChipText: { color: c.ink, fontSize: 12, fontWeight: '700' },
   outlineTabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   outlineTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, backgroundColor: c.panelAlt },
   outlineTabOn: { backgroundColor: c.mint },
