@@ -38,7 +38,7 @@ export function ToolBar({ tool, setTool, zoom, canUndo, canRedo, onUndo, onRedo,
           return (
             <Pressable key={item.id} onPress={() => setTool(item.id)} style={[s.tool, on && s.selected]}>
               <Ionicons name={item.icon} size={19} color={on ? colors.onMint : colors.muted} />
-              <Text style={[s.label, on && s.selectedLabel]}>{item.id === 'magnifier' && zoom > 1 ? `${zoom}x` : t(item.label)}</Text>
+              <Text style={[s.label, on && s.selectedLabel]}>{item.id === 'magnifier' && zoom > 1.02 ? `${Math.round(zoom * 10) / 10}x` : t(item.label)}</Text>
             </Pressable>
           );
         })}

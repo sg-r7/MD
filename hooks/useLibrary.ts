@@ -5,8 +5,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '@/constants/theme';
 import { deleteEditorNote } from '@/lib/editorStorage';
 import { useTheme } from '@/lib/theme';
-import { loadAnnotations, loadDocuments, removeAnnotations, saveDocuments } from '@/lib/storage';
-import type { DocumentRecord, SortMode, Tag } from '@/types';
+import { loadAnnotations, loadDocuments, loadFolders, removeAnnotations, saveDocuments, saveFolders } from '@/lib/storage';
+import type { DocumentRecord, Folder, SortMode, Tag } from '@/types';
 
 const accents = [colors.mint, colors.lime, colors.amber, '#B9A7FF', '#FF9FBD'];
 const sorts: SortMode[] = ['date', 'name', 'size'];
@@ -19,11 +19,14 @@ export function useLibrary() {
   const [filter, setFilter] = useState<Tag>('All');
   const [sort, setSort] = useState<SortMode>('date');
   const [loading, setLoading] = useState(true);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const foldersRef = useRef<Folder[]>([]);
+  const [folderFilter, setFolderFilter] = useState<string | null>(null); // folder id, or null for every folder
 
   const reload = useCallback(async () => {
-    const docs = await loadDocuments();
-    docsRef.current = docs;
-    setDocuments(docs);
+    const [docs, fl] = await Promise.all([loadDocuments(), loadFolders()]);
+    docsRef.current = docs; foldersRef.current = fl;
+    setDocuments(docs); setFolders(fl);
     setLoading(false);
   }, []);
   useEffect(() => { void reload(); }, [reload]);
@@ -71,6 +74,22 @@ export function useLibrary() {
     persist(docsRef.current.filter((d) => d.id !== id));
   }, [persist]);
 
+  const persistFolders = (next: Folder[]) => { foldersRef.current = next; setFolders(next); void saveFolders(next); };
+  const createFolder = (name: string, color: string) => {
+    const clean = name.trim();
+    if (!clean) return undefined;
+    const folder: Folder = { id: `f${Date.now()}`, name: clean, color };
+    persistFolders([...foldersRef.current, folder]);
+    return folder;
+  };
+  const editFolder = (id: string, name: string, color: string) => persistFolders(foldersRef.current.map((f) => (f.id === id ? { ...f, name: name.trim() || f.name, color } : f)));
+  const deleteFolder = (id: string) => {
+    persistFolders(foldersRef.current.filter((f) => f.id !== id));
+    persist(docsRef.current.map((d) => (d.folderId === id ? { ...d, folderId: undefined } : d)));
+    setFolderFilter((current) => (current === id ? null : current));
+  };
+  const moveToFolder = (docId: string, folderId?: string) => patch(docId, { folderId });
+
   const cycleSort = () => setSort((current) => sorts[(sorts.indexOf(current) + 1) % sorts.length]!);
 
   const filtered = useMemo(() => {
@@ -78,6 +97,7 @@ export function useLibrary() {
     const list = documents.filter((d) => {
       const text = `${d.name} ${d.tags.join(' ')} ${d.folder}`.toLowerCase();
       if (q && !text.includes(q)) return false;
+      if (folderFilter && d.folderId !== folderFilter) return false;
       if (filter === 'Favorites') return d.favorite;
       if (filter === 'Recent') return !!d.lastOpenedAt;
       if (filter === 'All') return true;
@@ -87,7 +107,9 @@ export function useLibrary() {
     if (sort === 'name') return list.sort((a, b) => a.name.localeCompare(b.name));
     if (sort === 'size') return list.sort((a, b) => b.size - a.size);
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [documents, filter, query, sort]);
+  }, [documents, filter, folderFilter, query, sort]);
 
-  return { documents, filtered, query, setQuery, filter, setFilter, sort, cycleSort, importDocument, toggleFavorite, toggleTag, rename, remove, reload, loading };
+  const recents = useMemo(() => documents.filter((d) => d.lastOpenedAt).sort((a, b) => (b.lastOpenedAt ?? '').localeCompare(a.lastOpenedAt ?? '')).slice(0, 6), [documents]);
+
+  return { folders, folderFilter, setFolderFilter, createFolder, editFolder, deleteFolder, moveToFolder, recents, reload: reload, documents, filtered, query, setQuery, filter, setFilter, sort, cycleSort, importDocument, toggleFavorite, toggleTag, rename, remove, loading };
 }

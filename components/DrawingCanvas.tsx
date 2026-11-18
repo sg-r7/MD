@@ -2,6 +2,7 @@
 import { Canvas, DashPathEffect, Group, Path, Skia } from '@shopify/react-native-skia';
 import { useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View } from 'react-native';
+import { PAGE_UNITS } from '@/lib/annotations';
 import { clamp01, strokePathD, strokesBounds } from '@/lib/geometry';
 import type { Point, Stroke, StrokeTool } from '@/types';
 
@@ -16,7 +17,7 @@ type Props = {
 
 const LASSO = '#34D399';
 const styleFor = (tool: CanvasTool, shape: ShapeKind, width: number): { tool: StrokeTool; width: number; opacity: number } => {
-  if (tool === 'highlight') return { tool: 'highlight', width: Math.max(width * 2.8, 14), opacity: 0.34 };
+  if (tool === 'highlight') return { tool: 'highlight', width: Math.max(width * 2.8, 24), opacity: 0.34 };
   if (tool === 'shape') return { tool: shape, width, opacity: 1 };
   if (tool === 'ruler') return { tool: 'line', width, opacity: 1 };
   return { tool: 'pen', width, opacity: 1 };
@@ -99,18 +100,19 @@ export function DrawingCanvas(props: Props) {
     onPanResponderTerminate: reset,
   }));
 
+  const u = Math.max(width, 1) / PAGE_UNITS; // pixels per page unit at the current zoom
   const toPx = (p: Point) => ({ x: p.x * width, y: p.y * height });
   const build = (list: Stroke[]) => list.flatMap((stroke) => {
-    const path = Skia.Path.MakeFromSVGString(strokePathD(stroke, toPx));
+    const path = Skia.Path.MakeFromSVGString(strokePathD(stroke, toPx, u));
     return path ? [{ path, stroke }] : [];
   });
-  const plain = useMemo(() => build(others), [others, width, height]);
+  const plain = useMemo(() => build(others), [others, width, height, u]);
   const chosen = useMemo(() => build(selected), [selected, width, height]);
   const draftPath = useMemo(() => {
     if (!draft.length) return null;
     if (tool === 'lasso') return Skia.Path.MakeFromSVGString(`${polyline(draft, width, height)} Z`);
     if (tool === 'eraser') return Skia.Path.MakeFromSVGString(polyline(draft, width, height));
-    return Skia.Path.MakeFromSVGString(strokePathD({ id: 'draft', page: 0, color, ...styleFor(tool, shapeKind, strokeWidth), points: draft }, toPx));
+    return Skia.Path.MakeFromSVGString(strokePathD({ id: 'draft', page: 0, color, ...styleFor(tool, shapeKind, strokeWidth), points: draft }, toPx, u));
   }, [draft, tool, shapeKind, color, strokeWidth, width, height]);
   const boxPath = useMemo(() => {
     if (!bounds) return null;
@@ -122,14 +124,14 @@ export function DrawingCanvas(props: Props) {
   return (
     <View pointerEvents={tool === 'select' ? 'none' : 'auto'} style={[styles.layer, { width, height }]} {...responder.panHandlers}>
       <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
-        {plain.map(({ path, stroke }) => <Path key={stroke.id} path={path} color={stroke.color} style="stroke" strokeWidth={stroke.width} opacity={stroke.opacity} strokeCap="round" strokeJoin="round" />)}
+        {plain.map(({ path, stroke }) => <Path key={stroke.id} path={path} color={stroke.color} style="stroke" strokeWidth={stroke.width * u} opacity={stroke.opacity} strokeCap="round" strokeJoin="round" />)}
         <Group transform={[{ translateX: offset.x * width }, { translateY: offset.y * height }]}>
-          {chosen.map(({ path, stroke }) => <Path key={stroke.id} path={path} color={stroke.color} style="stroke" strokeWidth={stroke.width} opacity={stroke.opacity} strokeCap="round" strokeJoin="round" />)}
+          {chosen.map(({ path, stroke }) => <Path key={stroke.id} path={path} color={stroke.color} style="stroke" strokeWidth={stroke.width * u} opacity={stroke.opacity} strokeCap="round" strokeJoin="round" />)}
           {boxPath && <Path path={boxPath} color={LASSO} style="stroke" strokeWidth={1.5}><DashPathEffect intervals={[6, 4]} /></Path>}
         </Group>
         {draftPath && tool === 'lasso' && <Path path={draftPath} color={LASSO} style="stroke" strokeWidth={2}><DashPathEffect intervals={[8, 6]} /></Path>}
-        {draftPath && tool === 'eraser' && <Path path={draftPath} color="rgba(255,255,255,0.55)" style="stroke" strokeWidth={24} strokeCap="round" strokeJoin="round" />}
-        {draftPath && tool !== 'lasso' && tool !== 'eraser' && <Path path={draftPath} color={color} style="stroke" strokeWidth={draftStyle.width} opacity={draftStyle.opacity} strokeCap="round" strokeJoin="round" />}
+        {draftPath && tool === 'eraser' && <Path path={draftPath} color="rgba(255,255,255,0.55)" style="stroke" strokeWidth={36 * u} strokeCap="round" strokeJoin="round" />}
+        {draftPath && tool !== 'lasso' && tool !== 'eraser' && <Path path={draftPath} color={color} style="stroke" strokeWidth={draftStyle.width * u} opacity={draftStyle.opacity} strokeCap="round" strokeJoin="round" />}
       </Canvas>
     </View>
   );

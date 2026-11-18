@@ -61,8 +61,8 @@ export function distToSegment(p: Point, a: Point, b: Point) {
 }
 
 /** True when the eraser path (normalised points) passes within `radius` px of the stroke. */
-export function strokeHit(s: Stroke, probe: Point[], w: number, h: number, radius: number) {
-  const r = radius + s.width / 2;
+export function strokeHit(s: Stroke, probe: Point[], w: number, h: number, radius: number, unit = 1) {
+  const r = radius + (s.width * unit) / 2;
   const px = (q: Point) => ({ x: q.x * w, y: q.y * h });
   const segs = strokeSegments(s).map(([p, q]) => [px(p), px(q)] as [Point, Point]);
   const dense: Point[] = [];
