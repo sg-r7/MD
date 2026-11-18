@@ -2,7 +2,7 @@
   "expo": {
     "name": "MD",
     "slug": "md-pdf",
-    "owner": "sgr7s-team",
+    "owner": "sgr7",
     "version": "1.5.0",
     "orientation": "default",
     "scheme": "md",
@@ -74,7 +74,7 @@
         }
       },
       "eas": {
-        "projectId": "d4f249a9-442b-4739-8a21-a589619d9e8d"
+        "projectId": "299d3a44-16a1-4d9e-bd6c-21617795a1f3"
       }
     }
   }
