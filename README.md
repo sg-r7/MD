@@ -36,6 +36,14 @@ Run checks with `pnpm typecheck` and `pnpm lint`.
 - `types/` defines document, stroke, sticky note, and settings contracts.
 - `constants/theme.ts` centralizes the visual system.
 
+## What's in 1.5
+
+- **Notebooks**: create a blank, ruled, grid or dotted notebook from the Add menu. A notebook is a PDF made in the app, so every tool works on it; add pages from the More menu.
+- **Manage pages**: select pages and move them up/down, duplicate, delete or insert blank pages, with thumbnails. Annotations and bookmarks move with their pages; the PDF is rebuilt with `pdf-lib` (very large files can be slow, and document-level extras such as form fields may be dropped).
+- **PDF text**: long-press selects text (system Copy menu), plus Share text and Search this text; links open after a confirmation; full-text search with next/previous; the document's table of contents.
+- **Folders and recents**: coloured folders, move documents between them, a "Continue reading" strip with cover images, and tabs in the reader to jump between recent documents.
+- Text selection, search and some PDF features need Android 15+ (or 12-14 with SDK extension 13); see the capability matrix of react-native-better-pdf.
+
 ## What's in 1.2
 
 - **Outline**: pages grid, bookmarks and a list of every sticky note, each tapping through to its page. Bookmark a page or jump to a page number from the More menu.
@@ -56,7 +64,11 @@ Run checks with `pnpm typecheck` and `pnpm lint`.
 
 ## PDF and annotation notes
 
-Annotations are stored per document (normalised 0..1 against the reader viewport) and the original PDF is never modified. The reader shows one page per screen, fitted and centred (`fitPolicy=2`, paging on), and export assumes exactly that layout. Export limits: stickers are not drawn, and notes in non-Latin scripts (e.g. Arabic) are exported as a marker because the built-in PDF font cannot draw them. If strokes look offset on a specific device, check the page-fit assumption in `lib/exportPdf.ts`.
+The reader uses [`react-native-better-pdf`](https://github.com/gmi-software/react-native-better-pdf) (needs `react-native-nitro-modules`, the New Architecture and a development/preview build, not Expo Go). Pages scroll continuously, pinch and double-tap zoom up to 5x run natively, and every page that is on screen or has annotations gets a `PdfPageOverlay`, so ink, notes, stickers and images stay attached to their page while you scroll and zoom.
+
+Annotations are stored as fractions of the page (stroke width in units of 1/600 of the page width), and the original PDF is never modified. Annotations saved by earlier versions are converted automatically the first time the page sizes are known. Export maps them straight onto the PDF pages. Export limits: stickers are not drawn, and notes in non-Latin scripts (e.g. Arabic) become a marker because the built-in PDF font cannot draw them.
+
+While a drawing tool is active, one finger draws; switch to **Read** to scroll, or use the **Zoom** button to step 1x / 2x / 3x. Night reading uses the viewer's dark pages mode.
 
 ## Design direction
 

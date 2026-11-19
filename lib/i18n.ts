@@ -43,6 +43,13 @@ const ar: Record<string, string> = {
   'Sharing unavailable': 'المشاركة غير متاحة', 'Sharing is not supported on this device.': 'هذا الجهاز لا يدعم المشاركة.',
   'Export failed': 'فشل التصدير', 'The document could not be exported.': 'تعذّر تصدير المستند.', 'Image failed': 'فشلت إضافة الصورة', 'The image could not be added.': 'تعذّر إضافة الصورة.',
   'Importing…': 'جارٍ الاستيراد…', 'The file is not a valid PDF.': 'هذا الملف ليس PDF صالحاً.',
+  // notebooks, folders, page manager, search (1.5)
+  Add: 'إضافة', 'New notebook': 'دفتر جديد', 'Notebook name': 'اسم الدفتر', Notebook: 'دفتر', Paper: 'الورق', Blank: 'فارغ', Ruled: 'مسطّر', Grid: 'مربعات', Dots: 'نقاط', Create: 'إنشاء',
+  'New folder': 'مجلد جديد', 'Folder name': 'اسم المجلد', 'Edit folder': 'تعديل المجلد', 'Delete folder': 'حذف المجلد', 'Move to folder': 'نقل إلى مجلد', 'No folder': 'بدون مجلد',
+  'Continue reading': 'تابع القراءة', 'Manage pages': 'إدارة الصفحات', Apply: 'تطبيق', selected: 'محددة', None: 'لا شيء', Up: 'أعلى', Down: 'أسفل', Duplicate: 'نسخ', New: 'جديدة',
+  'Rebuilding document…': 'جارٍ إعادة بناء المستند…', 'Could not apply changes': 'تعذّر تطبيق التغييرات', 'Add page': 'إضافة صفحة',
+  Contents: 'المحتويات', 'No contents in this document.': 'لا توجد فهرسة في هذا المستند.', 'Search in document': 'بحث في المستند', 'No matches': 'لا نتائج',
+  'Search needs Android 15 or newer.': 'البحث يحتاج أندرويد 15 أو أحدث.', 'Open this link?': 'فتح هذا الرابط؟', 'Share text': 'مشاركة النص', 'Search this text': 'ابحث عن النص',
   'Preparing annotated PDF…': 'جارٍ تجهيز PDF مع التعليقات…', 'Nothing to export yet.': 'لا يوجد شيء لتصديره بعد.',
 };
 
