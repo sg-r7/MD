@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '@/constants/theme';
 import { loadDocuments, saveDocuments } from '@/lib/storage';
+import { canonicalUri } from '@/lib/uri';
 import type { DocumentRecord } from '@/types';
 
 const accents = [colors.mint, colors.lime, colors.amber, '#B9A7FF', '#FF9FBD'];
@@ -15,12 +16,19 @@ const nameFromUri = (uri: string) => {
 };
 
 /** Copies a PDF handed over by another app (content:// or file://) into the library and returns its record. */
-export async function importPdfFromUri(uri: string): Promise<DocumentRecord> {
+export async function importPdfFromUri(uri: string, preferred?: string): Promise<DocumentRecord> {
   const base = `${FileSystem.documentDirectory}library/`;
   await FileSystem.makeDirectoryAsync(base, { intermediates: true }).catch(() => {});
   const name = nameFromUri(uri);
   const destination = `${base}${Date.now()}-${name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  await FileSystem.copyAsync({ from: uri, to: destination });
+  // The sending app granted access to one exact URI string. A router or bridge may have decoded it on the way
+  // (spaces, Arabic letters), so try the original intent URI, the given one, and the canonical encoding.
+  const candidates = [...new Set([preferred, uri, canonicalUri(uri), preferred ? canonicalUri(preferred) : undefined].filter((u): u is string => !!u))];
+  let failure: unknown;
+  for (const from of candidates) {
+    try { await FileSystem.copyAsync({ from, to: destination }); failure = undefined; break; } catch (error) { failure = error; }
+  }
+  if (failure) throw failure;
 
   // A real PDF starts with "%PDF-", which is "JVBERi0" in base64.
   const head = await FileSystem.readAsStringAsync(destination, { encoding: FileSystem.EncodingType.Base64, position: 0, length: 8 }).catch(() => '');
