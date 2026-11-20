@@ -54,7 +54,7 @@ export function PageItems({ notes, images, width, height, screenWidth, interacti
             ? <Text style={{ fontSize: (note.size ?? STICKER_SIZE) * width }}>{note.text}</Text>
             : (
               <View style={[styles.note, { backgroundColor: note.color, width: width * 0.42, padding: width * 0.028, borderRadius: width * 0.012 }]}>
-                <Text numberOfLines={9} style={{ color: '#3B2F0B', fontSize: width * 0.036, lineHeight: width * 0.05 }}>{note.text}</Text>
+                <Text numberOfLines={9} style={[{ color: '#3B2F0B', fontSize: width * 0.036, lineHeight: width * 0.05 }, /[\u0590-\u08FF]/.test(note.text) && { textAlign: 'right', writingDirection: 'rtl' }]}>{note.text}</Text>
               </View>
             )}
         </Draggable>

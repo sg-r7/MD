@@ -23,7 +23,10 @@ type Props = {
 function PageLayerView(p: Props) {
   const [box, setBox] = useState({ width: 0, height: 0 });
   return (
-    <View style={StyleSheet.absoluteFill} onLayout={(e) => setBox({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
+    // While reading, this layer must not take touches (it covers the whole page, so it would block the viewer's own
+    // scroll, pinch and double-tap); only notes/images, which are tapped and dragged, stay touchable. The page is also
+    // forced left-to-right: in an RTL language `left` would otherwise be mirrored and drag controls inverted.
+    <View pointerEvents={p.tool === 'select' ? 'box-none' : 'auto'} style={[StyleSheet.absoluteFill, { direction: 'ltr' }]} onLayout={(e) => setBox({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
       {box.width > 0 && box.height > 0 && (
         <>
           {(p.strokes.length > 0 || p.tool !== 'select') && (

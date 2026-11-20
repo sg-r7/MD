@@ -50,6 +50,7 @@ const ar: Record<string, string> = {
   'Rebuilding document…': 'جارٍ إعادة بناء المستند…', 'Could not apply changes': 'تعذّر تطبيق التغييرات', 'Add page': 'إضافة صفحة',
   Contents: 'المحتويات', 'No contents in this document.': 'لا توجد فهرسة في هذا المستند.', 'Search in document': 'بحث في المستند', 'No matches': 'لا نتائج',
   'Search needs Android 15 or newer.': 'البحث يحتاج أندرويد 15 أو أحدث.', 'Open this link?': 'فتح هذا الرابط؟', 'Share text': 'مشاركة النص', 'Search this text': 'ابحث عن النص',
+  'Could not read this file from the other app.': 'تعذّر قراءة هذا الملف من التطبيق الآخر. اختر الملف يدوياً من جهازك.', 'Choose a PDF file': 'اختيار ملف PDF',
   'Preparing annotated PDF…': 'جارٍ تجهيز PDF مع التعليقات…', 'Nothing to export yet.': 'لا يوجد شيء لتصديره بعد.',
 };
 
